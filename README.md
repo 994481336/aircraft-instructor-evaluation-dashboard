@@ -37,3 +37,5 @@ python -m py_compile app.py data_loader.py normalizer.py analysis.py
 不要将真实 Excel、Word 评分表、人员姓名或其他敏感数据提交到 GitHub。代码仓库可以公开，但真实数据应通过上传使用，并在确认部署权限后再用于线上评估。
 
 在 Streamlit Community Cloud 中创建应用时，入口文件选择 `app.py`，依赖文件使用根目录的 `requirements.txt`。
+
+详细部署步骤见 [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md)。
