@@ -1,0 +1,12 @@
+__pycache__/
+*.py[cod]
+.venv/
+.DS_Store
+.pytest_cache/
+.streamlit/secrets.toml
+*.log
+*.xlsx
+*.xls
+*.docx
+*.pdf
+!tests/fixtures/*.xlsx

@@ -1,0 +1,17 @@
+model_family: 国产民机
+version: "2026.08"
+source: R1附件7：华东局26年度国产民机教员技能评估评分表.docx
+pass_score:
+  critical_deduction: null
+  subject_thresholds: {}
+subjects:
+  科目一: {name: 大速度中断起飞, max_score: 15}
+  科目二: {name: 大侧风目视盘旋, max_score: 15}
+  科目三: {name: 选择非精密进近, max_score: 15}
+  科目四: {name: 中断着陆及发动机失效, max_score: 15}
+  科目五: {name: 单发ILS无指引落地, max_score: 15}
+  科目六: {name: 着陆高飘跳处置, max_score: 25}
+  综合考评: {name: 综合考评, max_score: null}
+notes:
+  - 科目二和科目四保留C909/C919差异化评分说明。
+  - 当前版本不启用合格线，最终判定由业务口径配置。
