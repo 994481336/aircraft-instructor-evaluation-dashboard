@@ -5,7 +5,6 @@ from typing import Any
 
 import pandas as pd
 import plotly.express as px
-import plotly.graph_objects as go
 import streamlit as st
 import yaml
 
@@ -36,8 +35,18 @@ def inject_css() -> None:
         <style>
         :root { --ink:#10223d; --muted:#60708a; --blue:#1d5fd0; --cyan:#20a8c9; --orange:#ef8d31; --red:#cf3f50; }
         .stApp { background: linear-gradient(135deg, #f5f8fc 0%, #eef3f9 48%, #e8f1f4 100%); color: var(--ink); }
-        [data-testid="stSidebar"] { background: #10223d; }
-        [data-testid="stSidebar"] * { color: #eef5ff !important; }
+        [data-testid="stSidebar"] { background: #10223d; min-width: 278px; max-width: 278px; }
+        [data-testid="stSidebar"][aria-expanded="true"] { width: 278px; }
+        [data-testid="stSidebar"] .stMarkdown p,
+        [data-testid="stSidebar"] [data-testid="stCaptionContainer"] p { color: #d6e4f7 !important; }
+        [data-testid="stSidebar"] [data-testid="stWidgetLabel"] p,
+        [data-testid="stSidebar"] label { color: #f5f8ff !important; }
+        [data-testid="stSidebar"] [data-baseweb="select"] { background: #f6f9fd; border: 1px solid #d9e4f2; border-radius: 11px; min-height: 42px; }
+        [data-testid="stSidebar"] [data-baseweb="select"] * { color: #10223d !important; }
+        [data-testid="stSidebar"] [data-testid="stFileUploader"] section { background: #f6f9fd; border: 1px solid #d9e4f2; border-radius: 13px; padding: 12px; }
+        [data-testid="stSidebar"] [data-testid="stFileUploader"] * { color: #10223d !important; }
+        [data-testid="stSidebar"] [data-testid="stFileUploaderDropzoneInstructions"] small { color: #60708a !important; }
+        [data-testid="stSidebar"] hr { border-color: rgba(224, 237, 252, .18); }
         .hero { padding: 24px 28px; border-radius: 22px; background: linear-gradient(120deg, #10223d, #154f81 68%, #1e8498); color: white; margin-bottom: 18px; box-shadow: 0 14px 34px rgba(16,34,61,.16); }
         .hero-kicker { font-size: 12px; letter-spacing: .14em; text-transform: uppercase; opacity: .74; }
         .hero-title { font-size: 30px; font-weight: 750; margin-top: 5px; }
@@ -51,6 +60,13 @@ def inject_css() -> None:
         .quality-ok { color: #147b55; font-weight: 700; }
         .quality-warn { color: #b06a13; font-weight: 700; }
         .small-note { color: var(--muted); font-size: 12px; line-height: 1.6; }
+        .profile-grid { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 10px; margin: 12px 0 16px; }
+        .profile-item { border: 1px solid rgba(84,115,150,.14); border-radius: 12px; background: rgba(255,255,255,.76); padding: 11px 12px; min-height: 66px; }
+        .profile-label { color: var(--muted); font-size: 11px; margin-bottom: 5px; }
+        .profile-value { color: var(--ink); font-weight: 650; font-size: 14px; overflow-wrap: anywhere; }
+        .risk-strip { border-radius: 12px; padding: 10px 13px; background: #fff6e9; border: 1px solid #f3d29f; color: #87520f; font-size: 13px; margin: 10px 0 14px; }
+        @media (max-width: 1100px) { .profile-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+        @media (max-width: 720px) { .profile-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
         </style>
         """,
         unsafe_allow_html=True,
@@ -219,11 +235,16 @@ def main() -> None:
                 ("训前讲评", fmt(person.get("训前总分")), "独立评分体系"),
                 ("总失分", fmt(person.get("失分")), "扣分项合计"),
             ])
-            st.dataframe(pd.DataFrame([{
-                "姓名": person.get("姓名"), "所属单位": person.get("所属单位"), "机型": person.get("机型"), "机型类别": person.get("机型类别"),
-                "技术等级": person.get("技术等级"), "评估日期": person.get("评估日期"), "评估员": person.get("评估员"),
-                "总飞行时间": person.get("总飞行时间"), "本机型经历时间": person.get("本机型经历时间"), "数据质量": person.get("数据质量详情") or "正常",
-            }]), width="stretch", hide_index=True)
+            profile_fields = [
+                ("姓名", person.get("姓名")), ("所属单位", person.get("所属单位")), ("机型", person.get("机型")),
+                ("机型类别", person.get("机型类别")), ("技术等级", person.get("技术等级")), ("评估日期", person.get("评估日期")),
+                ("评估员", person.get("评估员")), ("总飞行时间", fmt(person.get("总飞行时间"), 0)),
+                ("本机型经历时间", fmt(person.get("本机型经历时间"), 0)), ("数据质量", person.get("数据质量详情") or "正常"),
+            ]
+            profile_html = "".join(f'<div class="profile-item"><div class="profile-label">{label}</div><div class="profile-value">{value if value is not None and not pd.isna(value) else "-"}</div></div>' for label, value in profile_fields)
+            st.markdown(f'<div class="profile-grid">{profile_html}</div>', unsafe_allow_html=True)
+            if person.get("数据质量") != "正常" or float(person.get("失分") or 0) > 0:
+                st.markdown(f'<div class="risk-strip">复盘提示：该教员累计失分 {fmt(person.get("失分"))} 分。请结合下方扣分明细和科目表现安排讲评。</div>', unsafe_allow_html=True)
             person_scores = subject_score_frame(ratings[ratings["记录ID"] == person["记录ID"]])
             if not person_scores.empty:
                 fig = px.bar(person_scores, x="科目名称", y="得分", title="个人模拟机各科得分", text_auto=".1f", color="科目名称")
