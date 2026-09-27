@@ -21,6 +21,9 @@ RATING_DEFAULTS = {
     "训前总分": pd.NA,
     "模拟机总分": pd.NA,
     "科目小计合计": pd.NA,
+    "综合考评/其他扣分": 0.0,
+    "总分核对参考值": pd.NA,
+    "表内总分差值": pd.NA,
     "总扣分": 0.0,
     "失分": 0.0,
     "扣分项数量": 0,
@@ -73,7 +76,7 @@ def normalize(bundle: ParsedBundle) -> NormalizedData:
     deductions = ensure_columns(bundle.deductions, DEDUCTION_DEFAULTS)
     ratings["评估日期"] = pd.to_datetime(ratings["评估日期"], errors="coerce")
     deductions["评估日期"] = pd.to_datetime(deductions["评估日期"], errors="coerce")
-    for column in ("模拟机总分", "科目小计合计", "总扣分", "失分"):
+    for column in ("模拟机总分", "科目小计合计", "综合考评/其他扣分", "总分核对参考值", "表内总分差值", "总扣分", "失分"):
         ratings[column] = pd.to_numeric(ratings[column], errors="coerce")
     deductions["扣分值"] = pd.to_numeric(deductions["扣分值"], errors="coerce").fillna(0.0)
     deductions["失分"] = pd.to_numeric(deductions["失分"], errors="coerce").fillna(deductions["扣分值"].abs())

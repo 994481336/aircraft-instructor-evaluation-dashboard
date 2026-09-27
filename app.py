@@ -94,6 +94,26 @@ def metric_cards(metrics: list[tuple[str, str, str]]) -> None:
             st.markdown(f'<div class="metric"><div class="metric-label">{label}</div><div class="metric-value">{value}</div><div class="metric-help">{note}</div></div>', unsafe_allow_html=True)
 
 
+@st.dialog("待复核数据明细", width="large")
+def review_dialog(review_rows: pd.DataFrame) -> None:
+    st.caption("以下记录的表内模拟机总分，与单科 6～11 合计加综合考评/其他扣分后的核对参考值不一致。扣分明细不作为总分反算依据。")
+    columns = [
+        "记录ID", "姓名", "评估日期", "机型", "模拟机总分", "科目小计合计",
+        "综合考评/其他扣分", "总分核对参考值", "表内总分差值", "数据质量详情",
+    ]
+    display = review_rows[[column for column in columns if column in review_rows.columns]].copy()
+    display = display.rename(columns={
+        "记录ID": "记录编号",
+        "模拟机总分": "表内总分",
+        "科目小计合计": "单科6～11合计",
+        "综合考评/其他扣分": "综合考评/其他扣分",
+        "总分核对参考值": "核对参考值",
+        "表内总分差值": "表内-参考值",
+        "数据质量详情": "建议复核原因",
+    })
+    st.dataframe(display, width="stretch", hide_index=True)
+
+
 def section(title: str, note: str = "") -> None:
     st.markdown(f'<div class="section-title">{title}</div><div class="section-note">{note}</div>', unsafe_allow_html=True)
 
@@ -172,14 +192,22 @@ def main() -> None:
         deductions = deductions[deductions["技术等级"] == selected_role]
 
     metrics = summary_metrics(ratings, deductions)
-    metric_cards([
+    metric_cols = st.columns(6)
+    metric_values = [
         ("评估人数", str(metrics["评估人数"]), "当前筛选范围"),
         ("平均模拟机得分", fmt(metrics["平均模拟机得分"]), "表内总分"),
         ("最高分", fmt(metrics["最高分"]), "样本峰值"),
         ("最低分", fmt(metrics["最低分"]), "重点复盘对象"),
         ("平均失分", fmt(metrics["平均失分"]), "按人员计算"),
-        ("待复核", str(metrics["待复核"]), "总分或文本异常"),
-    ])
+    ]
+    for col, (label, value, note) in zip(metric_cols[:5], metric_values):
+        with col:
+            st.markdown(f'<div class="metric"><div class="metric-label">{label}</div><div class="metric-value">{value}</div><div class="metric-help">{note}</div></div>', unsafe_allow_html=True)
+    with metric_cols[5]:
+        st.markdown(f'<div class="metric"><div class="metric-label">待复核</div><div class="metric-value">{metrics["待复核"]}</div><div class="metric-help">点击查看编号和原因</div></div>', unsafe_allow_html=True)
+        review_rows = ratings[ratings["数据质量"] == "待复核"].copy()
+        if not review_rows.empty and st.button("查看待复核明细", key="open_review_dialog", use_container_width=True):
+            review_dialog(review_rows)
 
     tabs = st.tabs(["总览驾驶舱", "教员档案", "科目分析", "数据质量"])
     with tabs[0]:
@@ -276,7 +304,7 @@ def main() -> None:
             st.dataframe(loss.round(2), width="stretch", hide_index=True)
 
     with tabs[3]:
-        section("数据质量与规则状态", "所有不确定结果先标记为待复核，不阻断看板。")
+        section("数据质量与规则状态", "待复核 = 表内总分与“单科6～11合计 + 综合考评/其他明确扣分”的核对参考值不一致。")
         st.dataframe(data.summaries, width="stretch", hide_index=True)
         quality = data.quality.copy()
         if not quality.empty:
