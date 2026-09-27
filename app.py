@@ -15,9 +15,11 @@ from normalizer import normalize
 
 st.set_page_config(page_title="型别教员测试结果看板", page_icon="✈️", layout="wide", initial_sidebar_state="expanded")
 
+PARSER_CACHE_VERSION = "2026-09-27-total-reconciliation-v3"
+
 
 @st.cache_data(show_spinner=False)
-def cached_parse(payload: tuple[tuple[str, bytes], ...]):
+def cached_parse(payload: tuple[tuple[str, bytes], ...], parser_version: str):
     return parse_many(list(payload))
 
 
@@ -168,7 +170,7 @@ def main() -> None:
 
     payload = tuple((item.name, item.getvalue()) for item in uploaded)
     with st.spinner("正在解析 Excel、识别机型和扣分明细…"):
-        data = normalize(cached_parse(payload))
+        data = normalize(cached_parse(payload, PARSER_CACHE_VERSION))
 
     with st.sidebar:
         family_options = ["全部"] + sorted(data.ratings.get("机型类别", pd.Series(dtype=str)).dropna().unique().tolist())
