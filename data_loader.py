@@ -293,28 +293,9 @@ def parse_workbook(file_bytes: bytes, file_name: str) -> tuple[dict[str, Any], p
                 )
 
         source_sim_total = to_number(row.get(column_map.get("模拟机总分", ""), ""))
-        subject_total = sum(score for score in sim_scores.values() if score is not None)
-        special_deduction_indexes = [
-            idx for idx, header in enumerate(headers)
-            if "综合考评" in clean_text(header) or key_text(header) == "其他"
-        ]
-        special_deduction = sum(
-            part
-            for idx in special_deduction_indexes
-            for part in negative_parts(row.iloc[idx])
-        )
-        reconciliation_total = subject_total + special_deduction
         row_flags: list[str] = []
         if unresolved:
             row_flags.append(f"未识别扣分文本：{', '.join(unresolved[:5])}")
-        # 单科 6~11 是已填写的科目得分，综合考评/其他中的明确扣分再从合计中扣除。
-        # 不再使用“100 分 - 所有扣分明细”的未经确认公式。
-        if source_sim_total is not None and abs(source_sim_total - reconciliation_total) > 0.01:
-            row_flags.append(
-                "总分核对不一致：表内 "
-                f"{source_sim_total:g}，单科小计 {subject_total:g}，"
-                f"综合考评/其他扣分 {abs(special_deduction):g}，核对参考值 {reconciliation_total:g}"
-            )
         if family == FAMILY_UNKNOWN:
             row_flags.append("未识别机型规则")
         if source_sim_total is None:
@@ -336,10 +317,6 @@ def parse_workbook(file_bytes: bytes, file_name: str) -> tuple[dict[str, Any], p
                 "训前科目得分": briefing_scores,
                 "模拟机科目得分": sim_scores,
                 "模拟机总分": source_sim_total,
-                "科目小计合计": subject_total,
-                "综合考评/其他扣分": abs(special_deduction),
-                "总分核对参考值": reconciliation_total,
-                "表内总分差值": source_sim_total - reconciliation_total if source_sim_total is not None else None,
                 "总扣分": deduction_sum,
                 "失分": abs(deduction_sum),
                 "扣分项数量": sum(1 for item in record_deductions if item["失分"] > 0),

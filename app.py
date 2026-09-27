@@ -15,7 +15,7 @@ from normalizer import normalize
 
 st.set_page_config(page_title="型别教员测试结果看板", page_icon="✈️", layout="wide", initial_sidebar_state="expanded")
 
-PARSER_CACHE_VERSION = "2026-09-27-total-reconciliation-v3"
+PARSER_CACHE_VERSION = "2026-09-27-display-only-v4"
 
 
 @st.cache_data(show_spinner=False)
@@ -96,26 +96,6 @@ def metric_cards(metrics: list[tuple[str, str, str]]) -> None:
             st.markdown(f'<div class="metric"><div class="metric-label">{label}</div><div class="metric-value">{value}</div><div class="metric-help">{note}</div></div>', unsafe_allow_html=True)
 
 
-@st.dialog("待复核数据明细", width="large")
-def review_dialog(review_rows: pd.DataFrame) -> None:
-    st.caption("以下记录的表内模拟机总分，与单科 6～11 合计加综合考评/其他扣分后的核对参考值不一致。扣分明细不作为总分反算依据。")
-    columns = [
-        "记录ID", "姓名", "评估日期", "机型", "模拟机总分", "科目小计合计",
-        "综合考评/其他扣分", "总分核对参考值", "表内总分差值", "数据质量详情",
-    ]
-    display = review_rows[[column for column in columns if column in review_rows.columns]].copy()
-    display = display.rename(columns={
-        "记录ID": "记录编号",
-        "模拟机总分": "表内总分",
-        "科目小计合计": "单科6～11合计",
-        "综合考评/其他扣分": "综合考评/其他扣分",
-        "总分核对参考值": "核对参考值",
-        "表内总分差值": "表内-参考值",
-        "数据质量详情": "建议复核原因",
-    })
-    st.dataframe(display, width="stretch", hide_index=True)
-
-
 def section(title: str, note: str = "") -> None:
     st.markdown(f'<div class="section-title">{title}</div><div class="section-note">{note}</div>', unsafe_allow_html=True)
 
@@ -194,7 +174,6 @@ def main() -> None:
         deductions = deductions[deductions["技术等级"] == selected_role]
 
     metrics = summary_metrics(ratings, deductions)
-    metric_cols = st.columns(6)
     metric_values = [
         ("评估人数", str(metrics["评估人数"]), "当前筛选范围"),
         ("平均模拟机得分", fmt(metrics["平均模拟机得分"]), "表内总分"),
@@ -202,16 +181,9 @@ def main() -> None:
         ("最低分", fmt(metrics["最低分"]), "重点复盘对象"),
         ("平均失分", fmt(metrics["平均失分"]), "按人员计算"),
     ]
-    for col, (label, value, note) in zip(metric_cols[:5], metric_values):
-        with col:
-            st.markdown(f'<div class="metric"><div class="metric-label">{label}</div><div class="metric-value">{value}</div><div class="metric-help">{note}</div></div>', unsafe_allow_html=True)
-    with metric_cols[5]:
-        st.markdown(f'<div class="metric"><div class="metric-label">待复核</div><div class="metric-value">{metrics["待复核"]}</div><div class="metric-help">点击查看编号和原因</div></div>', unsafe_allow_html=True)
-        review_rows = ratings[ratings["数据质量"] == "待复核"].copy()
-        if not review_rows.empty and st.button("查看待复核明细", key="open_review_dialog", use_container_width=True):
-            review_dialog(review_rows)
+    metric_cards(metric_values)
 
-    tabs = st.tabs(["总览驾驶舱", "教员档案", "科目分析", "数据质量"])
+    tabs = st.tabs(["总览驾驶舱", "教员档案", "科目分析"])
     with tabs[0]:
         section("评分概览", "将训前讲评和模拟机表现分开呈现。")
         left, right = st.columns(2)
@@ -237,7 +209,7 @@ def main() -> None:
         else:
             st.warning("当前文件没有识别到数值型科目总分列。")
 
-        section("高频扣分项", "按总失分排序，待复核项目会单独标记。")
+        section("高频扣分项", "按总失分排序，便于复盘。")
         top = top_deductions(deductions, 10)
         if top.empty:
             st.success("当前筛选范围内没有可识别的扣分事件。")
@@ -268,11 +240,11 @@ def main() -> None:
                 ("姓名", person.get("姓名")), ("所属单位", person.get("所属单位")), ("机型", person.get("机型")),
                 ("机型类别", person.get("机型类别")), ("技术等级", person.get("技术等级")), ("评估日期", person.get("评估日期")),
                 ("评估员", person.get("评估员")), ("总飞行时间", fmt(person.get("总飞行时间"), 0)),
-                ("本机型经历时间", fmt(person.get("本机型经历时间"), 0)), ("数据质量", person.get("数据质量详情") or "正常"),
+                ("本机型经历时间", fmt(person.get("本机型经历时间"), 0)),
             ]
             profile_html = "".join(f'<div class="profile-item"><div class="profile-label">{label}</div><div class="profile-value">{value if value is not None and not pd.isna(value) else "-"}</div></div>' for label, value in profile_fields)
             st.markdown(f'<div class="profile-grid">{profile_html}</div>', unsafe_allow_html=True)
-            if person.get("数据质量") != "正常" or float(person.get("失分") or 0) > 0:
+            if float(person.get("失分") or 0) > 0:
                 st.markdown(f'<div class="risk-strip">复盘提示：该教员累计失分 {fmt(person.get("失分"))} 分。请结合下方扣分明细和科目表现安排讲评。</div>', unsafe_allow_html=True)
             person_scores = subject_score_frame(ratings[ratings["记录ID"] == person["记录ID"]])
             if not person_scores.empty:
@@ -305,20 +277,8 @@ def main() -> None:
                     st.plotly_chart(fig, width="stretch")
             st.dataframe(loss.round(2), width="stretch", hide_index=True)
 
-    with tabs[3]:
-        section("数据质量与规则状态", "待复核 = 表内总分与“单科6～11合计 + 综合考评/其他明确扣分”的核对参考值不一致。")
-        st.dataframe(data.summaries, width="stretch", hide_index=True)
-        quality = data.quality.copy()
-        if not quality.empty:
-            st.dataframe(quality, width="stretch", hide_index=True)
-        unresolved = deductions[deductions["规则状态"] == "待复核"] if not deductions.empty else pd.DataFrame()
-        if not unresolved.empty:
-            st.warning(f"发现 {len(unresolved)} 条未识别文本，请回到原始 Excel 核对。")
-            st.dataframe(unresolved, width="stretch", hide_index=True)
-        else:
-            st.success("未发现未识别扣分文本。")
         st.download_button("下载标准化人员数据", data=ratings.drop(columns=["训前科目得分", "模拟机科目得分"], errors="ignore").to_csv(index=False).encode("utf-8-sig"), file_name="标准化人员数据.csv", mime="text/csv")
-        st.download_button("下载扣分明细 Excel", data=xlsx_bytes({"人员数据": ratings.drop(columns=["训前科目得分", "模拟机科目得分"], errors="ignore"), "扣分明细": deductions, "数据质量": quality}), file_name="型别教员测试结果明细.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+        st.download_button("下载扣分明细 Excel", data=xlsx_bytes({"人员数据": ratings.drop(columns=["训前科目得分", "模拟机科目得分"], errors="ignore"), "扣分明细": deductions}), file_name="型别教员测试结果明细.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
 
 
 if __name__ == "__main__":
