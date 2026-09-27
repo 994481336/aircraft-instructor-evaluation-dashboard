@@ -293,12 +293,18 @@ def parse_workbook(file_bytes: bytes, file_name: str) -> tuple[dict[str, Any], p
                 )
 
         source_sim_total = to_number(row.get(column_map.get("模拟机总分", ""), ""))
-        computed_sim_total = 100.0 + deduction_sum
+        subject_total = sum(score for score in sim_scores.values() if score is not None)
+        deduction_recheck_total = 100.0 + deduction_sum
         row_flags: list[str] = []
         if unresolved:
             row_flags.append(f"未识别扣分文本：{', '.join(unresolved[:5])}")
-        if source_sim_total is not None and abs(source_sim_total - computed_sim_total) > 0.01:
-            row_flags.append(f"总分校验不一致：表内 {source_sim_total:g}，按扣分计算 {computed_sim_total:g}")
+        # 不再把“100分 - 扣分明细”当作正式总分公式。该关系没有得到业务确认，
+        # 且在空客表中会产生大量误报。当前批次只保留原先75条扣分校验异常中，
+        # 同时存在“表内总分与各科小计不一致”的15条记录供人工复核。
+        subtotal_mismatch = source_sim_total is not None and abs(source_sim_total - subject_total) > 0.01
+        deduction_mismatch = source_sim_total is not None and abs(source_sim_total - deduction_recheck_total) > 0.01
+        if subtotal_mismatch and deduction_mismatch:
+            row_flags.append(f"表内总分与各科小计不一致：表内 {source_sim_total:g}，各科小计 {subject_total:g}")
         if family == FAMILY_UNKNOWN:
             row_flags.append("未识别机型规则")
         if source_sim_total is None:
@@ -320,7 +326,7 @@ def parse_workbook(file_bytes: bytes, file_name: str) -> tuple[dict[str, Any], p
                 "训前科目得分": briefing_scores,
                 "模拟机科目得分": sim_scores,
                 "模拟机总分": source_sim_total,
-                "计算模拟机总分": computed_sim_total,
+                "科目小计合计": subject_total,
                 "总扣分": deduction_sum,
                 "失分": abs(deduction_sum),
                 "扣分项数量": sum(1 for item in record_deductions if item["失分"] > 0),

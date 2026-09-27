@@ -231,7 +231,6 @@ def main() -> None:
             st.caption(f"规则版本：{rule.get('version', '未知')} · 来源：{rule.get('source', '未指定')}")
             metric_cards([
                 ("模拟机总分", fmt(person.get("模拟机总分")), "Excel 表内总分"),
-                ("按扣分计算", fmt(person.get("计算模拟机总分")), "100 - 实际失分"),
                 ("训前讲评", fmt(person.get("训前总分")), "独立评分体系"),
                 ("总失分", fmt(person.get("失分")), "扣分项合计"),
             ])

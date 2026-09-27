@@ -37,7 +37,7 @@ class ParserTests(unittest.TestCase):
         self.assertEqual(summary["评估人数"], 1)
         self.assertEqual(ratings.iloc[0]["机型类别"], FAMILY_BOEING)
         self.assertEqual(ratings.iloc[0]["失分"], 2)
-        self.assertEqual(ratings.iloc[0]["计算模拟机总分"], 98)
+        self.assertEqual(ratings.iloc[0]["科目小计合计"], 18)
         self.assertEqual(len(deductions), 1)
         self.assertEqual(deductions.iloc[0]["规则状态"], "已识别")
         self.assertFalse(quality.empty)
