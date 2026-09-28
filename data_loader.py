@@ -165,13 +165,18 @@ def is_note_column(header: str) -> bool:
     return "备注" in clean_text(header)
 
 
+def is_deleted_column(header: str) -> bool:
+    text = clean_text(header)
+    return "已删除" in text or "总扣分" in text
+
+
 def negative_parts(value: Any) -> list[float]:
     text = clean_text(value).replace("−", "-").replace("－", "-")
     if not text or "无异常" in text or "不扣分" in text:
         return []
-    matches = re.findall(r"[-]\s*(\d+(?:\.\d+)?)\s*分", text)
+    matches = re.findall(r"[-]\s*(\d+(?:\.\d+)?)\s*(?:分|$|[，,。；;])", text)
     if not matches:
-        matches = re.findall(r"扣\s*(\d+(?:\.\d+)?)\s*分", text)
+        matches = re.findall(r"(?:扣|减)\s*(\d+(?:\.\d+)?)\s*分?", text)
     return [-float(match) for match in matches]
 
 
@@ -187,6 +192,52 @@ def subject_for_column(index: int, group_ends: list[int]) -> str:
     return "综合考评"
 
 
+def layout_indexes(headers: list[str]) -> tuple[list[int], list[int], list[int], bool]:
+    """Return briefing totals, simulation totals, deduction columns and layout flag."""
+    total_indexes = [idx for idx, header in enumerate(headers) if is_total_column(header)]
+    briefing_total_idx = next(
+        (idx for idx, header in enumerate(headers) if "训前讲评总得分" in key_text(header)),
+        len(headers),
+    )
+    sim_total_idx = next(
+        (idx for idx, header in enumerate(headers) if "模拟机评估总得分" in key_text(header)),
+        len(headers),
+    )
+    briefing_total_indexes = [idx for idx in total_indexes if idx < briefing_total_idx]
+    simulation_total_indexes = [idx for idx in total_indexes if idx > briefing_total_idx]
+
+    core_meta_fields = (
+        "提交时间", "填写ID", "被评估人姓名", "评估日期", "所属单位", "机型",
+        "技术等级", "总飞行时间", "本机型经历时间", "评估员姓名",
+    )
+    metadata_end = max(
+        (
+            idx
+            for idx, header in enumerate(headers)
+            if any(key_text(alias) == key_text(header) for field in core_meta_fields for alias in META_ALIASES[field])
+        ),
+        default=11,
+    ) + 1
+    briefing_start = next(
+        (idx for idx, header in enumerate(headers[metadata_end:], start=metadata_end) if "讲评要点" in key_text(header)),
+        briefing_total_idx,
+    )
+
+    # Boeing exports place simulation detail before the briefing block and append
+    # a few simulation columns after the source simulation total. Airbus/domestic
+    # exports keep simulation detail in one block after the briefing total.
+    boeing_layout = sim_total_idx == briefing_total_idx + 1 and briefing_start < briefing_total_idx
+    if boeing_layout:
+        deduction_indexes = list(range(metadata_end, briefing_start)) + list(range(sim_total_idx + 1, len(headers)))
+    else:
+        deduction_indexes = list(range(briefing_total_idx + 1, sim_total_idx))
+    deduction_indexes = [
+        idx for idx in deduction_indexes
+        if not is_total_column(headers[idx]) and not is_note_column(headers[idx]) and not is_deleted_column(headers[idx])
+    ]
+    return briefing_total_indexes, simulation_total_indexes, deduction_indexes, boeing_layout
+
+
 def parse_workbook(file_bytes: bytes, file_name: str) -> tuple[dict[str, Any], pd.DataFrame, pd.DataFrame, pd.DataFrame]:
     sheet_name, data, header_row, headers = read_first_valid_sheet(file_bytes)
     column_map = {field: find_column(headers, aliases) for field, aliases in META_ALIASES.items()}
@@ -196,14 +247,11 @@ def parse_workbook(file_bytes: bytes, file_name: str) -> tuple[dict[str, Any], p
     if missing:
         warnings.append(f"缺少字段：{', '.join(missing)}")
 
-    start = actual_start_index(headers)
-    total_indexes = [idx for idx, header in enumerate(headers) if is_total_column(header)]
-    actual_total_indexes = [idx for idx in total_indexes if idx >= start]
-    briefing_total_indexes = [idx for idx in total_indexes if idx < start]
+    briefing_total_indexes, simulation_total_indexes, deduction_indexes, boeing_layout = layout_indexes(headers)
     sim_total_idx = next((idx for idx, header in enumerate(headers) if "模拟机评估总得分" in key_text(header)), None)
     if sim_total_idx is None:
         sim_total_idx = len(headers)
-    group_ends = actual_total_indexes or [sim_total_idx]
+    group_ends = simulation_total_indexes or [sim_total_idx]
 
     rating_rows: list[dict[str, Any]] = []
     deduction_rows: list[dict[str, Any]] = []
@@ -228,17 +276,14 @@ def parse_workbook(file_bytes: bytes, file_name: str) -> tuple[dict[str, Any], p
         }
         sim_scores = {
             f"科目{i + 1}": to_number(row.iloc[col_idx])
-            for i, col_idx in enumerate(actual_total_indexes)
+            for i, col_idx in enumerate(simulation_total_indexes)
             if to_number(row.iloc[col_idx]) is not None
         }
 
         record_deductions: list[dict[str, Any]] = []
-        unresolved: list[str] = []
         deduction_sum = 0.0
-        for col_idx in range(start, min(sim_total_idx, len(headers))):
+        for col_idx in deduction_indexes:
             header = headers[col_idx]
-            if is_total_column(header) or is_note_column(header):
-                continue
             value = row.iloc[col_idx]
             text = clean_text(value)
             if not text:
@@ -256,7 +301,7 @@ def parse_workbook(file_bytes: bytes, file_name: str) -> tuple[dict[str, Any], p
                         "机型": model,
                         "机型类别": family,
                         "评估员": evaluator,
-                        "科目名称": subject_for_column(col_idx, group_ends),
+                        "科目名称": "模拟机表现" if boeing_layout else subject_for_column(col_idx, group_ends),
                         "评分项目": header,
                         "扣分标准": text,
                         "扣分值": cell_deduction,
@@ -270,7 +315,6 @@ def parse_workbook(file_bytes: bytes, file_name: str) -> tuple[dict[str, Any], p
             elif positive_parts(value):
                 continue
             elif "无异常" not in text and "不扣分" not in text:
-                unresolved.append(header)
                 record_deductions.append(
                     {
                         "记录ID": record_id,
@@ -280,7 +324,7 @@ def parse_workbook(file_bytes: bytes, file_name: str) -> tuple[dict[str, Any], p
                         "机型": model,
                         "机型类别": family,
                         "评估员": evaluator,
-                        "科目名称": subject_for_column(col_idx, group_ends),
+                        "科目名称": "模拟机表现" if boeing_layout else subject_for_column(col_idx, group_ends),
                         "评分项目": header,
                         "扣分标准": text,
                         "扣分值": 0.0,
@@ -288,14 +332,12 @@ def parse_workbook(file_bytes: bytes, file_name: str) -> tuple[dict[str, Any], p
                         "原始列": header,
                         "原始列号": col_idx + 1,
                         "来源文件": file_name,
-                        "规则状态": "待复核",
+                        "规则状态": "仅保留原文",
                     }
                 )
 
         source_sim_total = to_number(row.get(column_map.get("模拟机总分", ""), ""))
         row_flags: list[str] = []
-        if unresolved:
-            row_flags.append(f"未识别扣分文本：{', '.join(unresolved[:5])}")
         if family == FAMILY_UNKNOWN:
             row_flags.append("未识别机型规则")
         if source_sim_total is None:
@@ -320,7 +362,7 @@ def parse_workbook(file_bytes: bytes, file_name: str) -> tuple[dict[str, Any], p
                 "总扣分": deduction_sum,
                 "失分": abs(deduction_sum),
                 "扣分项数量": sum(1 for item in record_deductions if item["失分"] > 0),
-                "风险等级": "高" if abs(deduction_sum) >= 10 or unresolved else ("中" if abs(deduction_sum) > 0 else "低"),
+                "风险等级": "高" if abs(deduction_sum) >= 10 else ("中" if abs(deduction_sum) > 0 else "低"),
                 "数据质量": "待复核" if row_flags else "正常",
                 "数据质量详情": "；".join(row_flags),
                 "来源文件": file_name,

@@ -48,6 +48,49 @@ def unit_summary(ratings: pd.DataFrame) -> pd.DataFrame:
     return result.sort_values("平均分", ascending=False)
 
 
+def type_briefing(ratings: pd.DataFrame) -> pd.DataFrame:
+    """Build the business-facing summary for C919, Airbus and Boeing."""
+    columns = [
+        "机型范围", "评估人数", "评分记录", "平均模拟机得分", "平均训前讲评",
+        "平均失分", "最高模拟机得分", "最低模拟机得分", "主要机型",
+    ]
+    if ratings.empty:
+        return pd.DataFrame(columns=columns)
+
+    data = ratings.copy()
+    model_text = data.get("机型", pd.Series(index=data.index, dtype=str)).astype(str)
+    family = data.get("机型类别", pd.Series(index=data.index, dtype=str)).astype(str)
+    unit_text = data.get("所属单位", pd.Series(index=data.index, dtype=str)).astype(str)
+    c919 = model_text.str.upper().str.replace("-", "", regex=False).eq("C919")
+    donghang_c919 = c919 & unit_text.str.contains("东航", na=False)
+    c919_mask = donghang_c919 if donghang_c919.any() else c919
+    groups = [
+        ("东航 C919", c919_mask),
+        ("空客", family.eq("空客")),
+        ("波音", family.eq("波音")),
+    ]
+    rows: list[dict[str, object]] = []
+    for label, mask in groups:
+        part = data[mask].copy()
+        if part.empty:
+            continue
+        sim = pd.to_numeric(part.get("模拟机总分"), errors="coerce")
+        briefing = pd.to_numeric(part.get("训前总分"), errors="coerce")
+        loss = pd.to_numeric(part.get("失分"), errors="coerce")
+        rows.append({
+            "机型范围": label,
+            "评估人数": int(part["姓名"].nunique()) if "姓名" in part else len(part),
+            "评分记录": len(part),
+            "平均模拟机得分": float(sim.mean()) if sim.notna().any() else None,
+            "平均训前讲评": float(briefing.mean()) if briefing.notna().any() else None,
+            "平均失分": float(loss.mean()) if loss.notna().any() else None,
+            "最高模拟机得分": float(sim.max()) if sim.notna().any() else None,
+            "最低模拟机得分": float(sim.min()) if sim.notna().any() else None,
+            "主要机型": ", ".join(part["机型"].dropna().astype(str).value_counts().index.tolist()),
+        })
+    return pd.DataFrame(rows, columns=columns)
+
+
 def subject_summary(ratings: pd.DataFrame) -> pd.DataFrame:
     scores = subject_score_frame(ratings)
     if scores.empty:

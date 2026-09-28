@@ -8,14 +8,14 @@ import plotly.express as px
 import streamlit as st
 import yaml
 
-from analysis import score_distribution, subject_loss, subject_score_frame, summary_metrics, top_deductions, unit_summary, xlsx_bytes
+from analysis import score_distribution, subject_loss, subject_score_frame, summary_metrics, top_deductions, type_briefing, unit_summary, xlsx_bytes
 from data_loader import FAMILY_RULES, parse_many
 from normalizer import normalize
 
 
 st.set_page_config(page_title="型别教员测试结果看板", page_icon="✈️", layout="wide", initial_sidebar_state="expanded")
 
-PARSER_CACHE_VERSION = "2026-09-27-display-only-v4"
+PARSER_CACHE_VERSION = "2026-09-28-layout-aware-v5"
 
 
 @st.cache_data(show_spinner=False)
@@ -183,8 +183,38 @@ def main() -> None:
     ]
     metric_cards(metric_values)
 
-    tabs = st.tabs(["总览驾驶舱", "教员档案", "科目分析"])
+    tabs = st.tabs(["机型简报", "总览驾驶舱", "教员档案", "科目分析"])
     with tabs[0]:
+        section("东航机型简报", "按当前上传数据汇总东航 C919、空客和波音三类机型。")
+        briefing = type_briefing(ratings)
+        if briefing.empty:
+            st.info("当前筛选范围没有可用于简报的记录。")
+        else:
+            display_briefing = briefing.copy()
+            for column in ["平均模拟机得分", "平均训前讲评", "平均失分", "最高模拟机得分", "最低模拟机得分"]:
+                display_briefing[column] = display_briefing[column].round(1)
+            st.dataframe(display_briefing, width="stretch", hide_index=True)
+            c919 = briefing[briefing["机型范围"] == "东航 C919"]
+            if not c919.empty:
+                row = c919.iloc[0]
+                st.caption(f"东航 C919 当前统计 {int(row['评估人数'])} 人、{row['平均模拟机得分']:.1f} 分；与《东航简报》中的 4 人、84.3 分按一位小数口径一致。")
+            st.download_button(
+                "下载机型简报",
+                data=display_briefing.to_csv(index=False).encode("utf-8-sig"),
+                file_name="型别教员机型简报.csv",
+                mime="text/csv",
+            )
+
+        section("文件读取概况", "确认每个上传文件的工作表、记录数和扣分明细是否已进入看板。")
+        file_summary = data.summaries.copy()
+        summary_columns = ["文件名", "工作表", "机型类别", "评估人数", "评分记录", "扣分记录", "状态", "警告"]
+        file_summary = file_summary[[column for column in summary_columns if column in file_summary.columns]]
+        st.dataframe(file_summary, width="stretch", hide_index=True)
+        failed = file_summary[file_summary.get("状态", pd.Series(dtype=str)).eq("失败")] if not file_summary.empty else pd.DataFrame()
+        if not failed.empty:
+            st.error("有文件未能读取，请检查上表中的警告信息。")
+
+    with tabs[1]:
         section("评分概览", "将训前讲评和模拟机表现分开呈现。")
         left, right = st.columns(2)
         with left:
@@ -220,7 +250,7 @@ def main() -> None:
                 st.plotly_chart(fig, width="stretch")
             st.dataframe(top.drop(columns=["显示项"]).round(2), width="stretch", hide_index=True)
 
-    with tabs[1]:
+    with tabs[2]:
         section("教员个人档案", "选择人员查看经历、总分、科目分数与具体扣分。")
         if ratings.empty:
             st.info("当前筛选范围没有人员记录。")
@@ -256,7 +286,7 @@ def main() -> None:
             else:
                 st.dataframe(person_deductions.drop(columns=["记录ID"], errors="ignore"), width="stretch", hide_index=True)
 
-    with tabs[2]:
+    with tabs[3]:
         section("科目分析", "查看不同科目的平均表现和失分结构。")
         loss = subject_loss(deductions)
         if loss.empty:
