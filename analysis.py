@@ -57,19 +57,17 @@ def unit_summary(ratings: pd.DataFrame) -> pd.DataFrame:
 
 
 def type_briefing_segments(ratings: pd.DataFrame) -> list[tuple[str, pd.DataFrame]]:
-    """Return Eastern Airlines C919, Airbus and Boeing report sections."""
+    """Return C919, Airbus and Boeing sections for the selected units."""
     if ratings.empty:
         return []
     data = ratings.copy()
     model_text = data.get("机型", pd.Series(index=data.index, dtype=str)).astype(str)
     family = data.get("机型类别", pd.Series(index=data.index, dtype=str)).astype(str)
-    unit_text = data.get("所属单位", pd.Series(index=data.index, dtype=str)).astype(str).str.strip()
-    eastern = unit_text.str.startswith("东航")
     c919 = model_text.str.upper().str.replace("-", "", regex=False).eq("C919")
     groups = [
-        ("一、国产民机 C919", data[eastern & c919].copy()),
-        ("二、空客机型", data[eastern & family.eq("空客")].copy()),
-        ("三、波音机型", data[eastern & family.eq("波音")].copy()),
+        ("一、国产民机 C919", data[c919].copy()),
+        ("二、空客机型", data[family.eq("空客")].copy()),
+        ("三、波音机型", data[family.eq("波音")].copy()),
     ]
     return [(label, part) for label, part in groups if not part.empty]
 
@@ -85,7 +83,7 @@ def type_briefing(ratings: pd.DataFrame) -> pd.DataFrame:
 
     rows: list[dict[str, object]] = []
     for label, part in type_briefing_segments(ratings):
-        display_label = "东航 C919" if label.startswith("一、") else label[2:]
+        display_label = "C919" if label.startswith("一、") else label[2:]
         sim = pd.to_numeric(part.get("模拟机总分"), errors="coerce")
         briefing = pd.to_numeric(part.get("训前总分"), errors="coerce")
         loss = pd.to_numeric(part.get("失分"), errors="coerce")

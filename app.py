@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from html import escape
 from pathlib import Path
 from typing import Any
 
@@ -9,6 +10,7 @@ import streamlit as st
 import yaml
 
 from analysis import score_distribution, score_text, subject_loss, subject_score_frame, summary_metrics, top_deductions, type_briefing_segments, unit_summary, xlsx_bytes
+from company import canonical_company
 from data_loader import FAMILY_RULES, parse_many
 from normalizer import normalize
 
@@ -163,8 +165,21 @@ def main() -> None:
         family_options = ["全部"] + sorted(data.ratings.get("机型类别", pd.Series(dtype=str)).dropna().unique().tolist())
         selected_family = st.selectbox("机型类别", family_options)
         working = data.ratings[data.ratings["机型类别"] == selected_family] if selected_family != "全部" else data.ratings
-        unit_options = ["全部"] + sorted(working.get("所属单位", pd.Series(dtype=str)).dropna().unique().tolist())
-        selected_unit = st.selectbox("所属单位", unit_options)
+        raw_unit_counts = working.get("所属单位", pd.Series(dtype=str)).dropna().astype(str).value_counts()
+        raw_units = sorted(raw_unit_counts.index.tolist())
+        companies = sorted({canonical_company(name) for name in raw_units})
+        selected_company = st.selectbox("公司", ["全部公司", *companies, "自定义范围"])
+        selected_units = raw_units
+        if selected_company != "全部公司":
+            suggested_units = [name for name in raw_units if canonical_company(name) == selected_company] if selected_company != "自定义范围" else []
+            selected_units = st.multiselect(
+                "纳入的原表单位名称",
+                options=raw_units,
+                default=suggested_units,
+                format_func=lambda name: f"{name}（{raw_unit_counts[name]}条）",
+                key=f"brief_units_{selected_family}_{selected_company}",
+            )
+            st.caption("已自动勾选识别出的名称，可手动增删；本次选择只在当前会话生效。")
         role_options = ["全部"] + sorted(working.get("技术等级", pd.Series(dtype=str)).dropna().unique().tolist())
         selected_role = st.selectbox("技术等级", role_options)
 
@@ -173,21 +188,31 @@ def main() -> None:
     if selected_family != "全部":
         ratings = ratings[ratings["机型类别"] == selected_family]
         deductions = deductions[deductions["机型类别"] == selected_family]
-    if selected_unit != "全部":
-        ratings = ratings[ratings["所属单位"] == selected_unit]
-        deductions = deductions[deductions["所属单位"] == selected_unit]
+    if selected_company != "全部公司":
+        ratings = ratings[ratings["所属单位"].isin(selected_units)]
+        deductions = deductions[deductions["所属单位"].isin(selected_units)]
     if selected_role != "全部":
         ratings = ratings[ratings["技术等级"] == selected_role]
         deductions = deductions[deductions["技术等级"] == selected_role]
 
     tabs = st.tabs(["机型简报", "总览驾驶舱", "教员档案", "科目分析"])
     with tabs[0]:
-        st.markdown('<div class="brief-title">东航型别教员技能评估简报</div>', unsafe_allow_html=True)
+        if selected_company == "全部公司":
+            company_label = "全部公司"
+        elif selected_company == "自定义范围":
+            company_label = "自定义单位范围"
+        elif set(selected_units) != set(suggested_units):
+            company_label = f"{selected_company}（自选范围）"
+        else:
+            company_label = selected_company
+        st.markdown(f'<div class="brief-title">{escape(company_label)}型别教员技能评估简报</div>', unsafe_allow_html=True)
         segments = type_briefing_segments(ratings)
         if not segments:
-            st.info("当前上传数据中没有东航 C919、空客或波音记录。")
+            st.info("当前选择范围内没有 C919、空客或波音评分记录。")
         else:
             st.caption("人数按姓名去重；记录平均分、得分分布和单位平均分均按评分记录计算，同一人多次评估分别计入。")
+            if selected_company != "全部公司":
+                st.caption("本次纳入的原表单位名称：" + "、".join(selected_units))
             for section_title, segment in segments:
                 segment_metrics = summary_metrics(segment, pd.DataFrame())
                 st.markdown(f'<div class="brief-section-title">{section_title}</div>', unsafe_allow_html=True)
@@ -200,8 +225,17 @@ def main() -> None:
                         st.plotly_chart(fig, width="stretch")
                 with right:
                     unit_scores = unit_summary(segment)
-                    fig = score_chart(unit_scores, "平均分", "所属单位", "单位平均分", horizontal=True)
+                    if selected_company == "全部公司":
+                        company_rows = segment.assign(公司=segment["所属单位"].map(canonical_company))
+                        unit_scores = company_rows.groupby("公司", as_index=False).agg(平均分=("模拟机总分", "mean"))
+                        chart_name = "公司平均分"
+                        axis_name = "公司"
+                    else:
+                        chart_name = "原表单位平均分"
+                        axis_name = "所属单位"
+                    fig = score_chart(unit_scores, "平均分", axis_name, chart_name, horizontal=True)
                     if fig:
+                        fig.update_layout(height=max(360, min(900, len(unit_scores) * 38 + 90)))
                         st.plotly_chart(fig, width="stretch")
                 st.divider()
 
