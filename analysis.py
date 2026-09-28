@@ -48,15 +48,10 @@ def unit_summary(ratings: pd.DataFrame) -> pd.DataFrame:
     return result.sort_values("平均分", ascending=False)
 
 
-def type_briefing(ratings: pd.DataFrame) -> pd.DataFrame:
-    """Build the business-facing summary for C919, Airbus and Boeing."""
-    columns = [
-        "机型范围", "评估人数", "评分记录", "平均模拟机得分", "平均训前讲评",
-        "平均失分", "最高模拟机得分", "最低模拟机得分", "主要机型",
-    ]
+def type_briefing_segments(ratings: pd.DataFrame) -> list[tuple[str, pd.DataFrame]]:
+    """Return the report sections for C919, Airbus and Boeing."""
     if ratings.empty:
-        return pd.DataFrame(columns=columns)
-
+        return []
     data = ratings.copy()
     model_text = data.get("机型", pd.Series(index=data.index, dtype=str)).astype(str)
     family = data.get("机型类别", pd.Series(index=data.index, dtype=str)).astype(str)
@@ -65,20 +60,30 @@ def type_briefing(ratings: pd.DataFrame) -> pd.DataFrame:
     donghang_c919 = c919 & unit_text.str.contains("东航", na=False)
     c919_mask = donghang_c919 if donghang_c919.any() else c919
     groups = [
-        ("东航 C919", c919_mask),
-        ("空客", family.eq("空客")),
-        ("波音", family.eq("波音")),
+        ("一、国产民机", data[c919_mask].copy()),
+        ("二、空客机型", data[family.eq("空客")].copy()),
+        ("三、波音机型", data[family.eq("波音")].copy()),
     ]
+    return [(label, part) for label, part in groups if not part.empty]
+
+
+def type_briefing(ratings: pd.DataFrame) -> pd.DataFrame:
+    """Build the supporting summary table for C919, Airbus and Boeing."""
+    columns = [
+        "机型范围", "评估人数", "评分记录", "平均模拟机得分", "平均训前讲评",
+        "平均失分", "最高模拟机得分", "最低模拟机得分", "主要机型",
+    ]
+    if ratings.empty:
+        return pd.DataFrame(columns=columns)
+
     rows: list[dict[str, object]] = []
-    for label, mask in groups:
-        part = data[mask].copy()
-        if part.empty:
-            continue
+    for label, part in type_briefing_segments(ratings):
+        display_label = "东航 C919" if label.startswith("一、") else label[2:]
         sim = pd.to_numeric(part.get("模拟机总分"), errors="coerce")
         briefing = pd.to_numeric(part.get("训前总分"), errors="coerce")
         loss = pd.to_numeric(part.get("失分"), errors="coerce")
         rows.append({
-            "机型范围": label,
+            "机型范围": display_label,
             "评估人数": int(part["姓名"].nunique()) if "姓名" in part else len(part),
             "评分记录": len(part),
             "平均模拟机得分": float(sim.mean()) if sim.notna().any() else None,

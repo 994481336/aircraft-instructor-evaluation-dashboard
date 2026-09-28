@@ -8,7 +8,7 @@ import plotly.express as px
 import streamlit as st
 import yaml
 
-from analysis import score_distribution, subject_loss, subject_score_frame, summary_metrics, top_deductions, type_briefing, unit_summary, xlsx_bytes
+from analysis import score_distribution, subject_loss, subject_score_frame, summary_metrics, top_deductions, type_briefing, type_briefing_segments, unit_summary, xlsx_bytes
 from data_loader import FAMILY_RULES, parse_many
 from normalizer import normalize
 
@@ -67,6 +67,11 @@ def inject_css() -> None:
         .profile-label { color: var(--muted); font-size: 11px; margin-bottom: 5px; }
         .profile-value { color: var(--ink); font-weight: 650; font-size: 14px; overflow-wrap: anywhere; }
         .risk-strip { border-radius: 12px; padding: 10px 13px; background: #fff6e9; border: 1px solid #f3d29f; color: #87520f; font-size: 13px; margin: 10px 0 14px; }
+        .brief-title { color: var(--ink); font-size: 36px; font-weight: 780; margin: 4px 0 24px; }
+        .brief-section-title { color: var(--ink); font-size: 28px; font-weight: 740; margin: 26px 0 10px; }
+        .brief-lead { color: var(--ink); font-size: 22px; font-weight: 600; margin: 0 0 16px; }
+        .brief-lead strong { font-size: 28px; font-weight: 780; }
+        .brief-meta { color: var(--muted); font-size: 12px; margin: -4px 0 12px; }
         @media (max-width: 1100px) { .profile-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
         @media (max-width: 720px) { .profile-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
         </style>
@@ -185,34 +190,45 @@ def main() -> None:
 
     tabs = st.tabs(["机型简报", "总览驾驶舱", "教员档案", "科目分析"])
     with tabs[0]:
-        section("东航机型简报", "按当前上传数据汇总东航 C919、空客和波音三类机型。")
-        briefing = type_briefing(ratings)
-        if briefing.empty:
+        st.markdown('<div class="brief-title">东航：</div>', unsafe_allow_html=True)
+        st.caption("型别教员技能评估简报 · 数据来自当前上传的 Excel 文件")
+        segments = type_briefing_segments(ratings)
+        if not segments:
             st.info("当前筛选范围没有可用于简报的记录。")
         else:
-            display_briefing = briefing.copy()
-            for column in ["平均模拟机得分", "平均训前讲评", "平均失分", "最高模拟机得分", "最低模拟机得分"]:
-                display_briefing[column] = display_briefing[column].round(1)
-            st.dataframe(display_briefing, width="stretch", hide_index=True)
-            c919 = briefing[briefing["机型范围"] == "东航 C919"]
-            if not c919.empty:
-                row = c919.iloc[0]
-                st.caption(f"东航 C919 当前统计 {int(row['评估人数'])} 人、{row['平均模拟机得分']:.1f} 分；与《东航简报》中的 4 人、84.3 分按一位小数口径一致。")
-            st.download_button(
-                "下载机型简报",
-                data=display_briefing.to_csv(index=False).encode("utf-8-sig"),
-                file_name="型别教员机型简报.csv",
-                mime="text/csv",
-            )
+            for section_title, segment in segments:
+                metrics = summary_metrics(segment, deductions[deductions["记录ID"].isin(segment["记录ID"])])
+                st.markdown(f'<div class="brief-section-title">{section_title}</div>', unsafe_allow_html=True)
+                st.markdown(f'<div class="brief-lead">参加 <strong>{metrics["评估人数"]}</strong> 人，平均分数 <strong>{fmt(metrics["平均模拟机得分"])}</strong></div>', unsafe_allow_html=True)
+                st.markdown('<div class="brief-meta">平均分按表内模拟机评估总得分计算，页面不做合格性判断。</div>', unsafe_allow_html=True)
+                left, right = st.columns(2)
+                with left:
+                    distribution = score_distribution(segment)
+                    fig = score_chart(distribution, "人数", "分数区间", "得分分布", horizontal=True)
+                    if fig:
+                        st.plotly_chart(fig, width="stretch")
+                with right:
+                    unit_scores = unit_summary(segment)
+                    fig = score_chart(unit_scores, "平均分", "所属单位", "单位平均分", horizontal=True)
+                    if fig:
+                        st.plotly_chart(fig, width="stretch")
+                st.divider()
 
-        section("文件读取概况", "确认每个上传文件的工作表、记录数和扣分明细是否已进入看板。")
-        file_summary = data.summaries.copy()
-        summary_columns = ["文件名", "工作表", "机型类别", "评估人数", "评分记录", "扣分记录", "状态", "警告"]
-        file_summary = file_summary[[column for column in summary_columns if column in file_summary.columns]]
-        st.dataframe(file_summary, width="stretch", hide_index=True)
-        failed = file_summary[file_summary.get("状态", pd.Series(dtype=str)).eq("失败")] if not file_summary.empty else pd.DataFrame()
-        if not failed.empty:
-            st.error("有文件未能读取，请检查上表中的警告信息。")
+            with st.expander("查看简报汇总明细和文件读取概况"):
+                briefing = type_briefing(ratings).copy()
+                for column in ["平均模拟机得分", "平均训前讲评", "平均失分", "最高模拟机得分", "最低模拟机得分"]:
+                    briefing[column] = briefing[column].round(1)
+                st.dataframe(briefing, width="stretch", hide_index=True)
+                file_summary = data.summaries.copy()
+                summary_columns = ["文件名", "工作表", "机型类别", "评估人数", "评分记录", "扣分记录", "状态", "警告"]
+                file_summary = file_summary[[column for column in summary_columns if column in file_summary.columns]]
+                st.dataframe(file_summary, width="stretch", hide_index=True)
+                st.download_button(
+                    "下载简报明细",
+                    data=briefing.to_csv(index=False).encode("utf-8-sig"),
+                    file_name="型别教员简报明细.csv",
+                    mime="text/csv",
+                )
 
     with tabs[1]:
         section("评分概览", "将训前讲评和模拟机表现分开呈现。")
