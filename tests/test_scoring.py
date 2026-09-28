@@ -4,7 +4,7 @@ import unittest
 
 import pandas as pd
 
-from analysis import score_distribution, subject_loss, summary_metrics, top_deductions
+from analysis import score_distribution, score_text, subject_loss, summary_metrics, top_deductions, type_briefing_segments
 from normalizer import normalize
 from data_loader import ParsedBundle
 
@@ -35,6 +35,18 @@ class ScoringTests(unittest.TestCase):
     def test_distribution_has_bins(self):
         distribution = score_distribution(self.data.ratings)
         self.assertEqual(int(distribution["人数"].sum()), 1)
+
+    def test_eastern_briefing_excludes_other_airlines_and_rounds_scores(self):
+        rows = pd.DataFrame([
+            {"记录ID": "1", "姓名": "甲", "所属单位": "东航飞行总队", "机型": "C919", "机型类别": "国产民机", "模拟机总分": 84.0},
+            {"记录ID": "2", "姓名": "乙", "所属单位": "东航飞行总队", "机型": "C919", "机型类别": "国产民机", "模拟机总分": 84.5},
+            {"记录ID": "3", "姓名": "丙", "所属单位": "东航", "机型": "A320", "机型类别": "空客", "模拟机总分": 91.0},
+            {"记录ID": "4", "姓名": "丁", "所属单位": "山东航空", "机型": "B737", "机型类别": "波音", "模拟机总分": 88.0},
+        ])
+        segments = type_briefing_segments(rows)
+        self.assertEqual([name for name, _ in segments], ["一、国产民机 C919", "二、空客机型"])
+        self.assertEqual(len(segments[0][1]), 2)
+        self.assertEqual(score_text(segments[0][1]["模拟机总分"].mean()), "84.3")
 
 
 if __name__ == "__main__":

@@ -1,8 +1,16 @@
 from __future__ import annotations
 
+from decimal import Decimal, ROUND_HALF_UP
 from io import BytesIO
 
 import pandas as pd
+
+
+def score_text(value: float | int | None) -> str:
+    """Display source scores to one decimal using ordinary half-up rounding."""
+    if value is None or pd.isna(value):
+        return "-"
+    return str(Decimal(str(value)).quantize(Decimal("0.1"), rounding=ROUND_HALF_UP))
 
 
 def subject_score_frame(ratings: pd.DataFrame, field: str = "模拟机科目得分") -> pd.DataFrame:
@@ -49,20 +57,19 @@ def unit_summary(ratings: pd.DataFrame) -> pd.DataFrame:
 
 
 def type_briefing_segments(ratings: pd.DataFrame) -> list[tuple[str, pd.DataFrame]]:
-    """Return the report sections for C919, Airbus and Boeing."""
+    """Return Eastern Airlines C919, Airbus and Boeing report sections."""
     if ratings.empty:
         return []
     data = ratings.copy()
     model_text = data.get("机型", pd.Series(index=data.index, dtype=str)).astype(str)
     family = data.get("机型类别", pd.Series(index=data.index, dtype=str)).astype(str)
-    unit_text = data.get("所属单位", pd.Series(index=data.index, dtype=str)).astype(str)
+    unit_text = data.get("所属单位", pd.Series(index=data.index, dtype=str)).astype(str).str.strip()
+    eastern = unit_text.str.startswith("东航")
     c919 = model_text.str.upper().str.replace("-", "", regex=False).eq("C919")
-    donghang_c919 = c919 & unit_text.str.contains("东航", na=False)
-    c919_mask = donghang_c919 if donghang_c919.any() else c919
     groups = [
-        ("一、国产民机", data[c919_mask].copy()),
-        ("二、空客机型", data[family.eq("空客")].copy()),
-        ("三、波音机型", data[family.eq("波音")].copy()),
+        ("一、国产民机 C919", data[eastern & c919].copy()),
+        ("二、空客机型", data[eastern & family.eq("空客")].copy()),
+        ("三、波音机型", data[eastern & family.eq("波音")].copy()),
     ]
     return [(label, part) for label, part in groups if not part.empty]
 
