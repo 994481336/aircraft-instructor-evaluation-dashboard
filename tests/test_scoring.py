@@ -34,7 +34,20 @@ class ScoringTests(unittest.TestCase):
 
     def test_distribution_has_bins(self):
         distribution = score_distribution(self.data.ratings)
-        self.assertEqual(int(distribution["人数"].sum()), 1)
+        self.assertEqual(int(distribution["评分记录数"].sum()), 1)
+
+    def test_briefing_distinguishes_people_from_scoring_records(self):
+        rows = pd.DataFrame([
+            {"记录ID": "1", "姓名": "甲", "所属单位": "东航", "机型": "A320", "机型类别": "空客", "模拟机总分": 70.0},
+            {"记录ID": "2", "姓名": "甲", "所属单位": "东航", "机型": "A320", "机型类别": "空客", "模拟机总分": 80.0},
+            {"记录ID": "3", "姓名": "乙", "所属单位": "东航", "机型": "A320", "机型类别": "空客", "模拟机总分": 90.0},
+        ])
+        segment = type_briefing_segments(rows)[0][1]
+        metrics = summary_metrics(segment, pd.DataFrame())
+        self.assertEqual(metrics["评估人数"], 2)
+        self.assertEqual(metrics["评分记录"], 3)
+        self.assertEqual(metrics["平均模拟机得分"], 80.0)
+        self.assertEqual(int(score_distribution(segment)["评分记录数"].sum()), 3)
 
     def test_eastern_briefing_excludes_other_airlines_and_rounds_scores(self):
         rows = pd.DataFrame([

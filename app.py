@@ -11,7 +11,6 @@ import yaml
 from analysis import score_distribution, score_text, subject_loss, subject_score_frame, summary_metrics, top_deductions, type_briefing_segments, unit_summary, xlsx_bytes
 from data_loader import FAMILY_RULES, parse_many
 from normalizer import normalize
-from report_docx import build_briefing_docx
 
 
 st.set_page_config(page_title="型别教员测试结果看板", page_icon="✈️", layout="wide", initial_sidebar_state="expanded")
@@ -131,11 +130,14 @@ def fmt(value: Any, digits: int = 1) -> str:
 def score_chart(frame: pd.DataFrame, x: str, y: str, title: str, color: str | None = None, horizontal: bool = False):
     if frame.empty or x not in frame or y not in frame:
         return None
+    label_format = ".0f" if x == "评分记录数" or y == "评分记录数" else ".1f"
     if horizontal:
-        fig = px.bar(frame, x=x, y=y, color=color, orientation="h", title=title, text_auto=".1f")
+        fig = px.bar(frame, x=x, y=y, color=color, orientation="h", title=title, text_auto=label_format)
     else:
-        fig = px.bar(frame, x=x, y=y, color=color, title=title, text_auto=".1f")
+        fig = px.bar(frame, x=x, y=y, color=color, title=title, text_auto=label_format)
     fig.update_layout(template="plotly_white", margin=dict(l=10, r=10, t=45, b=10), legend_title_text="", height=360)
+    if x == "评分记录数":
+        fig.update_xaxes(dtick=1)
     return fig
 
 
@@ -185,14 +187,15 @@ def main() -> None:
         if not segments:
             st.info("当前上传数据中没有东航 C919、空客或波音记录。")
         else:
+            st.caption("人数按姓名去重；记录平均分、得分分布和单位平均分均按评分记录计算，同一人多次评估分别计入。")
             for section_title, segment in segments:
                 segment_metrics = summary_metrics(segment, pd.DataFrame())
                 st.markdown(f'<div class="brief-section-title">{section_title}</div>', unsafe_allow_html=True)
-                st.markdown(f'<div class="brief-lead">参加 <strong>{segment_metrics["评估人数"]}</strong> 人，平均分数 <strong>{score_text(segment_metrics["平均模拟机得分"])}</strong></div>', unsafe_allow_html=True)
+                st.markdown(f'<div class="brief-lead">评估 <strong>{segment_metrics["评估人数"]}</strong> 人，评分记录 <strong>{segment_metrics["评分记录"]}</strong> 条，记录平均分 <strong>{score_text(segment_metrics["平均模拟机得分"])}</strong></div>', unsafe_allow_html=True)
                 left, right = st.columns(2)
                 with left:
                     distribution = score_distribution(segment)
-                    fig = score_chart(distribution, "人数", "分数区间", "得分分布", horizontal=True)
+                    fig = score_chart(distribution, "评分记录数", "分数区间", "得分分布（按记录）", horizontal=True)
                     if fig:
                         st.plotly_chart(fig, width="stretch")
                 with right:
@@ -201,27 +204,22 @@ def main() -> None:
                     if fig:
                         st.plotly_chart(fig, width="stretch")
                 st.divider()
-            st.download_button(
-                "下载 Word 简报",
-                data=build_briefing_docx(segments),
-                file_name="东航型别教员技能评估简报.docx",
-                mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-            )
 
     with tabs[1]:
         metrics = summary_metrics(ratings, deductions)
         metric_cards([
             ("评估人数", str(metrics["评估人数"]), "当前筛选范围"),
-            ("平均模拟机得分", fmt(metrics["平均模拟机得分"]), "表内总分"),
+            ("评分记录", str(metrics["评分记录"]), "同一人可有多条"),
+            ("记录平均分", fmt(metrics["平均模拟机得分"]), "按有分数的记录计算"),
             ("最高分", fmt(metrics["最高分"]), "样本峰值"),
             ("最低分", fmt(metrics["最低分"]), "重点复盘对象"),
-            ("平均失分", fmt(metrics["平均失分"]), "按人员计算"),
+            ("平均失分", fmt(metrics["平均失分"]), "按记录计算"),
         ])
         section("评分概览", "将训前讲评和模拟机表现分开呈现。")
         left, right = st.columns(2)
         with left:
             distribution = score_distribution(ratings)
-            fig = score_chart(distribution, "人数", "分数区间", "得分分布", horizontal=True)
+            fig = score_chart(distribution, "评分记录数", "分数区间", "得分分布（按记录）", horizontal=True)
             if fig:
                 st.plotly_chart(fig, width="stretch")
         with right:

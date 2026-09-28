@@ -130,11 +130,11 @@ def subject_loss(deductions: pd.DataFrame) -> pd.DataFrame:
 
 def score_distribution(ratings: pd.DataFrame) -> pd.DataFrame:
     if ratings.empty:
-        return pd.DataFrame(columns=["分数区间", "人数"])
+        return pd.DataFrame(columns=["分数区间", "评分记录数"])
     scores = pd.to_numeric(ratings["模拟机总分"], errors="coerce").dropna()
     bins = [-float("inf"), 79.99, 89.99, 94.99, 100.01, float("inf")]
     labels = ["<80", "80-89", "90-94", "95-100", ">100"]
-    return scores.groupby(pd.cut(scores, bins=bins, labels=labels, right=True), observed=False).size().rename("人数").reset_index().rename(columns={"模拟机总分": "分数区间"})
+    return scores.groupby(pd.cut(scores, bins=bins, labels=labels, right=True), observed=False).size().rename("评分记录数").reset_index().rename(columns={"模拟机总分": "分数区间"})
 
 
 def risk_summary(ratings: pd.DataFrame, deductions: pd.DataFrame) -> pd.DataFrame:
