@@ -32,6 +32,8 @@ python -m unittest discover -s tests -p 'test_*.py'
 python -m py_compile app.py data_loader.py normalizer.py analysis.py company.py
 ```
 
+上传验证应分别覆盖单独上传波音、空客、国产民机，以及切换公司筛选。简报与总览可能展示相同数据的图表，各图表已设置独立组件编号，避免单机型上传时发生重复组件错误。
+
 ## 评分规则
 
 `rules/` 中的 YAML 文件是从三份 Word 评分表整理出的规则版本。正式合格线尚未启用，应用只展示原始得分、失分、风险等级和扣分明细，不在看板内做总分一致性校验或合格性判断；相关数据口径由上游业务流程负责确认。

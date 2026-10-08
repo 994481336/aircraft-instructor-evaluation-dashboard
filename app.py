@@ -213,7 +213,7 @@ def main() -> None:
             st.caption("人数按姓名去重；记录平均分、得分分布和单位平均分均按评分记录计算，同一人多次评估分别计入。")
             if selected_company != "全部公司":
                 st.caption("本次纳入的原表单位名称：" + "、".join(selected_units))
-            for section_title, segment in segments:
+            for segment_index, (section_title, segment) in enumerate(segments):
                 segment_metrics = summary_metrics(segment, pd.DataFrame())
                 st.markdown(f'<div class="brief-section-title">{section_title}</div>', unsafe_allow_html=True)
                 st.markdown(f'<div class="brief-lead">评估 <strong>{segment_metrics["评估人数"]}</strong> 人，评分记录 <strong>{segment_metrics["评分记录"]}</strong> 条，记录平均分 <strong>{score_text(segment_metrics["平均模拟机得分"])}</strong></div>', unsafe_allow_html=True)
@@ -222,7 +222,7 @@ def main() -> None:
                     distribution = score_distribution(segment)
                     fig = score_chart(distribution, "评分记录数", "分数区间", "得分分布（按记录）", horizontal=True)
                     if fig:
-                        st.plotly_chart(fig, width="stretch")
+                        st.plotly_chart(fig, width="stretch", key=f"brief_score_distribution_{segment_index}")
                 with right:
                     unit_scores = unit_summary(segment)
                     if selected_company == "全部公司":
@@ -236,7 +236,7 @@ def main() -> None:
                     fig = score_chart(unit_scores, "平均分", axis_name, chart_name, horizontal=True)
                     if fig:
                         fig.update_layout(height=max(360, min(900, len(unit_scores) * 38 + 90)))
-                        st.plotly_chart(fig, width="stretch")
+                        st.plotly_chart(fig, width="stretch", key=f"brief_unit_average_{segment_index}")
                 st.divider()
 
     with tabs[1]:
@@ -255,12 +255,12 @@ def main() -> None:
             distribution = score_distribution(ratings)
             fig = score_chart(distribution, "评分记录数", "分数区间", "得分分布（按记录）", horizontal=True)
             if fig:
-                st.plotly_chart(fig, width="stretch")
+                st.plotly_chart(fig, width="stretch", key="overview_score_distribution")
         with right:
             units = unit_summary(ratings)
             fig = score_chart(units, "平均分", "所属单位", "单位平均分", horizontal=True)
             if fig:
-                st.plotly_chart(fig, width="stretch")
+                st.plotly_chart(fig, width="stretch", key="overview_unit_average")
 
         section("科目平均分", "以 Excel 中的模拟机各科总得分为准。")
         subjects = subject_score_frame(ratings)
@@ -268,7 +268,7 @@ def main() -> None:
             subject_avg = subjects.groupby("科目名称", as_index=False).agg(平均分=("得分", "mean"), 评估人数=("得分", "count"))
             fig = score_chart(subject_avg, "平均分", "科目名称", "各科目平均分", horizontal=True)
             if fig:
-                st.plotly_chart(fig, width="stretch")
+                st.plotly_chart(fig, width="stretch", key="overview_subject_average")
             st.dataframe(subject_avg.round(2), width="stretch", hide_index=True)
         else:
             st.warning("当前文件没有识别到数值型科目总分列。")
@@ -281,7 +281,7 @@ def main() -> None:
             top["显示项"] = top["科目名称"] + " · " + top["评分项目"]
             fig = score_chart(top.sort_values("总失分"), "总失分", "显示项", "扣分项 TOP 10", horizontal=True)
             if fig:
-                st.plotly_chart(fig, width="stretch")
+                st.plotly_chart(fig, width="stretch", key="overview_top_deductions")
             st.dataframe(top.drop(columns=["显示项"]).round(2), width="stretch", hide_index=True)
 
         with st.expander("文件读取概况"):
@@ -319,7 +319,7 @@ def main() -> None:
             if not person_scores.empty:
                 fig = px.bar(person_scores, x="科目名称", y="得分", title="个人模拟机各科得分", text_auto=".1f", color="科目名称")
                 fig.update_layout(template="plotly_white", showlegend=False, height=360, margin=dict(l=10, r=10, t=45, b=10))
-                st.plotly_chart(fig, width="stretch")
+                st.plotly_chart(fig, width="stretch", key="personal_subject_scores")
             if person_deductions.empty:
                 st.success("该教员没有识别到扣分事件。")
             else:
@@ -335,7 +335,7 @@ def main() -> None:
             with left:
                 fig = score_chart(loss, "总失分", "科目名称", "各科目总失分", horizontal=True)
                 if fig:
-                    st.plotly_chart(fig, width="stretch")
+                    st.plotly_chart(fig, width="stretch", key="subject_total_loss")
             with right:
                 subject_options = loss["科目名称"].tolist()
                 selected_subject = st.selectbox("选择科目下钻", subject_options)
@@ -343,7 +343,7 @@ def main() -> None:
                 detail = detail.groupby("评分项目", as_index=False).agg(扣分次数=("记录ID", "nunique"), 总失分=("失分", "sum")).sort_values("总失分", ascending=False)
                 fig = score_chart(detail.head(10), "总失分", "评分项目", f"{selected_subject} 扣分项", horizontal=True)
                 if fig:
-                    st.plotly_chart(fig, width="stretch")
+                    st.plotly_chart(fig, width="stretch", key="subject_detail")
             st.dataframe(loss.round(2), width="stretch", hide_index=True)
 
         st.download_button("下载标准化人员数据", data=ratings.drop(columns=["训前科目得分", "模拟机科目得分"], errors="ignore").to_csv(index=False).encode("utf-8-sig"), file_name="标准化人员数据.csv", mime="text/csv")
