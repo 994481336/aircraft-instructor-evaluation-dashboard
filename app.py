@@ -17,7 +17,7 @@ from normalizer import normalize
 
 st.set_page_config(page_title="型别教员测试结果看板", page_icon="✈️", layout="wide", initial_sidebar_state="expanded")
 
-PARSER_CACHE_VERSION = "2026-09-28-layout-aware-v5"
+PARSER_CACHE_VERSION = "2026-10-10-exact-headers-v6"
 
 
 @st.cache_data(show_spinner=False)

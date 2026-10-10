@@ -3,9 +3,9 @@ from __future__ import annotations
 from io import BytesIO
 import unittest
 
-from openpyxl import Workbook
+from openpyxl import Workbook, load_workbook
 
-from data_loader import FAMILY_BOEING, parse_workbook
+from data_loader import FAMILY_AIRBUS, FAMILY_BOEING, META_ALIASES, find_column, parse_workbook
 
 
 def sample_workbook(model: str = "B747") -> bytes:
@@ -52,6 +52,26 @@ def boeing_layout_workbook() -> bytes:
 
 
 class ParserTests(unittest.TestCase):
+    def test_model_at_bj_overrides_earlier_deleted_metadata(self):
+        workbook = load_workbook(BytesIO(sample_workbook()))
+        sheet = workbook["评估数据"]
+        sheet.cell(row=1, column=6).value = "机型(已删除)"
+        sheet.cell(row=1, column=9).value = "本机型经历时间(已删除)"
+        sheet.cell(row=1, column=62).value = "机型"
+        sheet.cell(row=2, column=62).value = "A330"
+        output = BytesIO()
+        workbook.save(output)
+        _, ratings, deductions, _, _ = parse_workbook(output.getvalue(), "导出表.xlsx")
+        self.assertEqual(ratings.iloc[0]["机型"], "A330")
+        self.assertEqual(ratings.iloc[0]["机型类别"], FAMILY_AIRBUS)
+        self.assertEqual(set(deductions["机型"]), {"A330"})
+        self.assertEqual(ratings.iloc[0]["模拟机总分"], 98)
+        self.assertEqual(ratings.iloc[0]["失分"], 2)
+
+    def test_model_header_does_not_match_experience_time(self):
+        self.assertIsNone(find_column(["本机型经历时间(已删除)", "本机型经历时间"], META_ALIASES["机型"]))
+        self.assertEqual(find_column(["本机型经历时间", "飞机型号"], META_ALIASES["机型"]), "飞机型号")
+
     def test_skips_blank_sheet_and_extracts_deduction(self):
         summary, ratings, deductions, quality, columns = parse_workbook(sample_workbook(), "波音测试.xlsx")
         self.assertEqual(summary["工作表"], "评估数据")

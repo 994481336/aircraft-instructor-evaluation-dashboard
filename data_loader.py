@@ -138,12 +138,25 @@ def read_first_valid_sheet(file_bytes: bytes) -> tuple[str, pd.DataFrame, int, l
 
 
 def find_column(columns: list[str] | pd.Index, aliases: tuple[str, ...]) -> str | None:
-    normalized = {key_text(column): str(column) for column in columns}
+    normalized = [(key_text(column), str(column)) for column in columns if "已删除" not in clean_text(column)]
+    # Look through every column for an exact header before trying a partial
+    # match. Exported metadata can occur after the scoring columns.
     for alias in aliases:
         alias_key = key_text(alias)
-        for column_key, original in normalized.items():
-            if alias_key == column_key or alias_key in column_key:
+        for column_key, original in normalized:
+            if alias_key == column_key:
                 return original
+    known_fields = {key_text(alias) for values in META_ALIASES.values() for alias in values}
+    for alias in aliases:
+        alias_key = key_text(alias)
+        for column_key, original in normalized:
+            if alias_key not in column_key:
+                continue
+            # "机型" must not resolve to the separate field
+            # "本机型经历时间" when the model header is absent.
+            if any(alias_key != field and alias_key in field and field in column_key for field in known_fields):
+                continue
+            return original
     return None
 
 
