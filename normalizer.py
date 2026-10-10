@@ -4,6 +4,7 @@ from dataclasses import dataclass
 
 import pandas as pd
 
+from aircraft import canonical_model
 from data_loader import ParsedBundle
 
 
@@ -70,6 +71,8 @@ def ensure_columns(df: pd.DataFrame, defaults: dict[str, object]) -> pd.DataFram
 def normalize(bundle: ParsedBundle) -> NormalizedData:
     ratings = ensure_columns(bundle.ratings, RATING_DEFAULTS)
     deductions = ensure_columns(bundle.deductions, DEDUCTION_DEFAULTS)
+    for frame in (ratings, deductions):
+        frame["统计机型"] = [canonical_model(model, family) for model, family in zip(frame["机型"], frame["机型类别"])]
     ratings["评估日期"] = pd.to_datetime(ratings["评估日期"], errors="coerce")
     deductions["评估日期"] = pd.to_datetime(deductions["评估日期"], errors="coerce")
     for column in ("模拟机总分", "总扣分", "失分"):

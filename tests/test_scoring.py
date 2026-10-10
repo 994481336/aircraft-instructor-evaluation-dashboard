@@ -58,7 +58,7 @@ class ScoringTests(unittest.TestCase):
             {"记录ID": "4", "姓名": "丁", "所属单位": "山东航空", "机型": "B737", "机型类别": "波音", "模拟机总分": 88.0},
         ])
         segments = type_briefing_segments(rows)
-        self.assertEqual([name for name, _ in segments], ["一、国产民机 C919", "二、空客机型", "三、波音机型"])
+        self.assertEqual([name for name, _ in segments], ["一、国产民机", "二、空客机型", "三、波音机型"])
         self.assertEqual(len(segments[0][1]), 2)
         self.assertEqual(score_text(segments[0][1]["模拟机总分"].mean()), "84.3")
 

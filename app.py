@@ -162,6 +162,7 @@ def main() -> None:
         data = normalize(cached_parse(payload, PARSER_CACHE_VERSION))
 
     with st.sidebar:
+        display_mode = st.radio("展示模式", ["按机型类别", "按具体机型"])
         family_options = ["全部"] + sorted(data.ratings.get("机型类别", pd.Series(dtype=str)).dropna().unique().tolist())
         selected_family = st.selectbox("机型类别", family_options)
         working = data.ratings[data.ratings["机型类别"] == selected_family] if selected_family != "全部" else data.ratings
@@ -180,6 +181,13 @@ def main() -> None:
                 key=f"brief_units_{selected_family}_{selected_company}",
             )
             st.caption("已自动勾选识别出的名称，可手动增删；本次选择只在当前会话生效。")
+            working = working[working["所属单位"].isin(selected_units)]
+        selected_model = "全部"
+        if display_mode == "按具体机型":
+            model_options = ["全部"] + sorted(working["统计机型"].dropna().unique().tolist())
+            selected_model = st.selectbox("具体机型", model_options)
+            if selected_model != "全部":
+                working = working[working["统计机型"] == selected_model]
         role_options = ["全部"] + sorted(working.get("技术等级", pd.Series(dtype=str)).dropna().unique().tolist())
         selected_role = st.selectbox("技术等级", role_options)
 
@@ -191,6 +199,9 @@ def main() -> None:
     if selected_company != "全部公司":
         ratings = ratings[ratings["所属单位"].isin(selected_units)]
         deductions = deductions[deductions["所属单位"].isin(selected_units)]
+    if selected_model != "全部":
+        ratings = ratings[ratings["统计机型"] == selected_model]
+        deductions = deductions[deductions["统计机型"] == selected_model]
     if selected_role != "全部":
         ratings = ratings[ratings["技术等级"] == selected_role]
         deductions = deductions[deductions["技术等级"] == selected_role]
@@ -206,23 +217,25 @@ def main() -> None:
         else:
             company_label = selected_company
         st.markdown(f'<div class="brief-title">{escape(company_label)}型别教员技能评估简报</div>', unsafe_allow_html=True)
-        segments = type_briefing_segments(ratings)
+        segments = type_briefing_segments(ratings, display_mode)
         if not segments:
-            st.info("当前选择范围内没有 C919、空客或波音评分记录。")
+            st.info("当前选择范围内没有评分记录。")
         else:
+            if display_mode == "按具体机型" and ratings["统计机型"].str.contains("机型未明确", regex=False).any():
+                st.caption("部分原表记录只填写了机型类别，已单列为“机型未明确”，未推断具体型号。")
             st.caption("人数按姓名去重；记录平均分、得分分布和单位平均分均按评分记录计算，同一人多次评估分别计入。")
             if selected_company != "全部公司":
                 st.caption("本次纳入的原表单位名称：" + "、".join(selected_units))
             for segment_index, (section_title, segment) in enumerate(segments):
                 segment_metrics = summary_metrics(segment, pd.DataFrame())
-                st.markdown(f'<div class="brief-section-title">{section_title}</div>', unsafe_allow_html=True)
+                st.markdown(f'<div class="brief-section-title">{escape(section_title)}</div>', unsafe_allow_html=True)
                 st.markdown(f'<div class="brief-lead">评估 <strong>{segment_metrics["评估人数"]}</strong> 人，评分记录 <strong>{segment_metrics["评分记录"]}</strong> 条，记录平均分 <strong>{score_text(segment_metrics["平均模拟机得分"])}</strong></div>', unsafe_allow_html=True)
                 left, right = st.columns(2)
                 with left:
                     distribution = score_distribution(segment)
                     fig = score_chart(distribution, "评分记录数", "分数区间", "得分分布（按记录）", horizontal=True)
                     if fig:
-                        st.plotly_chart(fig, width="stretch", key=f"brief_score_distribution_{segment_index}")
+                        st.plotly_chart(fig, width="stretch", key=f"brief_score_distribution_{display_mode}_{segment_index}")
                 with right:
                     unit_scores = unit_summary(segment)
                     if selected_company == "全部公司":
@@ -236,7 +249,7 @@ def main() -> None:
                     fig = score_chart(unit_scores, "平均分", axis_name, chart_name, horizontal=True)
                     if fig:
                         fig.update_layout(height=max(360, min(900, len(unit_scores) * 38 + 90)))
-                        st.plotly_chart(fig, width="stretch", key=f"brief_unit_average_{segment_index}")
+                        st.plotly_chart(fig, width="stretch", key=f"brief_unit_average_{display_mode}_{segment_index}")
                 st.divider()
 
     with tabs[1]:

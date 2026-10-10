@@ -5,6 +5,8 @@ from io import BytesIO
 
 import pandas as pd
 
+from aircraft import canonical_model
+
 
 def score_text(value: float | int | None) -> str:
     """Display source scores to one decimal using ordinary half-up rounding."""
@@ -56,24 +58,30 @@ def unit_summary(ratings: pd.DataFrame) -> pd.DataFrame:
     return result.sort_values("平均分", ascending=False)
 
 
-def type_briefing_segments(ratings: pd.DataFrame) -> list[tuple[str, pd.DataFrame]]:
-    """Return C919, Airbus and Boeing sections for the selected units."""
+def type_briefing_segments(ratings: pd.DataFrame, mode: str = "按机型类别") -> list[tuple[str, pd.DataFrame]]:
+    """Partition the selected records by manufacturer category or model."""
     if ratings.empty:
         return []
     data = ratings.copy()
-    model_text = data.get("机型", pd.Series(index=data.index, dtype=str)).astype(str)
     family = data.get("机型类别", pd.Series(index=data.index, dtype=str)).astype(str)
-    c919 = model_text.str.upper().str.replace("-", "", regex=False).eq("C919")
+    if mode == "按具体机型":
+        if "统计机型" not in data:
+            models = data.get("机型", pd.Series(index=data.index, dtype=str))
+            data["统计机型"] = [canonical_model(model, category) for model, category in zip(models, family)]
+        return [(f"{index}、{model}", part.copy()) for index, (model, part) in enumerate(data.groupby("统计机型", sort=True), start=1)]
     groups = [
-        ("一、国产民机 C919", data[c919].copy()),
+        ("一、国产民机", data[family.eq("国产民机")].copy()),
         ("二、空客机型", data[family.eq("空客")].copy()),
         ("三、波音机型", data[family.eq("波音")].copy()),
     ]
+    other = data[~family.isin(["国产民机", "空客", "波音"])].copy()
+    if not other.empty:
+        groups.append(("四、未识别类别", other))
     return [(label, part) for label, part in groups if not part.empty]
 
 
 def type_briefing(ratings: pd.DataFrame) -> pd.DataFrame:
-    """Build the supporting summary table for C919, Airbus and Boeing."""
+    """Build the supporting summary table for manufacturer categories."""
     columns = [
         "机型范围", "评估人数", "评分记录", "平均模拟机得分", "平均训前讲评",
         "平均失分", "最高模拟机得分", "最低模拟机得分", "主要机型",
@@ -83,7 +91,7 @@ def type_briefing(ratings: pd.DataFrame) -> pd.DataFrame:
 
     rows: list[dict[str, object]] = []
     for label, part in type_briefing_segments(ratings):
-        display_label = "C919" if label.startswith("一、") else label[2:]
+        display_label = label.split("、", 1)[-1]
         sim = pd.to_numeric(part.get("模拟机总分"), errors="coerce")
         briefing = pd.to_numeric(part.get("训前总分"), errors="coerce")
         loss = pd.to_numeric(part.get("失分"), errors="coerce")
