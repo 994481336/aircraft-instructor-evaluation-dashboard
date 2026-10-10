@@ -149,8 +149,6 @@ def main() -> None:
         st.markdown("### 数据接入")
         uploaded = st.file_uploader("上传评估 Excel", type=["xlsx", "xls"], accept_multiple_files=True, help="支持一次上传多个导出文件。")
         st.markdown("---")
-        st.caption("评分规则")
-        st.caption("空客 / 波音 / 国产民机规则已结构化内置。正式合格线暂未启用。")
 
     render_hero(bool(uploaded))
     if not uploaded:
