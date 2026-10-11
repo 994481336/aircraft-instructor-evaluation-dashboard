@@ -185,7 +185,7 @@ def is_deleted_column(header: str) -> bool:
 
 def negative_parts(value: Any) -> list[float]:
     text = clean_text(value).replace("−", "-").replace("－", "-")
-    if not text or "无异常" in text or "不扣分" in text:
+    if not text:
         return []
     matches = re.findall(r"[-]\s*(\d+(?:\.\d+)?)\s*(?:分|$|[，,。；;])", text)
     if not matches:
@@ -223,30 +223,32 @@ def layout_indexes(headers: list[str]) -> tuple[list[int], list[int], list[int],
         "提交时间", "填写ID", "被评估人姓名", "评估日期", "所属单位", "机型",
         "技术等级", "总飞行时间", "本机型经历时间", "评估员姓名",
     )
-    metadata_end = max(
-        (
-            idx
-            for idx, header in enumerate(headers)
-            if any(key_text(alias) == key_text(header) for field in core_meta_fields for alias in META_ALIASES[field])
-        ),
-        default=11,
-    ) + 1
+    metadata_keys = {key_text(alias) for field in core_meta_fields for alias in META_ALIASES[field]}
+    metadata_columns = {find_column(headers, META_ALIASES[field]) for field in core_meta_fields}
+    metadata_keys.update({"提交者", "答题时间", "答题时间秒"})
     briefing_start = next(
-        (idx for idx, header in enumerate(headers[metadata_end:], start=metadata_end) if "讲评要点" in key_text(header)),
+        (idx for idx, header in enumerate(headers) if "讲评要点" in key_text(header)),
         briefing_total_idx,
     )
-
-    # Boeing exports place simulation detail before the briefing block and append
-    # a few simulation columns after the source simulation total. Airbus/domestic
-    # exports keep simulation detail in one block after the briefing total.
-    boeing_layout = sim_total_idx == briefing_total_idx + 1 and briefing_start < briefing_total_idx
+    simulation_start = next(
+        (idx for idx, header in enumerate(headers) if key_text(header) in {"决策偏差", "喊话偏差"}),
+        None,
+    )
+    # Both Boeing and reordered Airbus exports can put simulation detail before
+    # briefing, with more detail after the simulator total. Detect this from the
+    # scoring headers, not adjacency of totals or the last metadata position.
+    boeing_layout = briefing_start < briefing_total_idx and (
+        (simulation_start is not None and simulation_start < briefing_start)
+        or sim_total_idx == briefing_total_idx + 1
+    )
     if boeing_layout:
-        deduction_indexes = list(range(metadata_end, briefing_start)) + list(range(sim_total_idx + 1, len(headers)))
+        deduction_indexes = list(range(simulation_start or 0, briefing_start)) + list(range(sim_total_idx + 1, len(headers)))
     else:
         deduction_indexes = list(range(briefing_total_idx + 1, sim_total_idx))
     deduction_indexes = [
         idx for idx in deduction_indexes
         if not is_total_column(headers[idx]) and not is_note_column(headers[idx]) and not is_deleted_column(headers[idx])
+        and key_text(headers[idx]) not in metadata_keys and headers[idx] not in metadata_columns
     ]
     return briefing_total_indexes, simulation_total_indexes, deduction_indexes, boeing_layout
 

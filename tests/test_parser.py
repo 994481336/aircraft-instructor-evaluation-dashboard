@@ -5,7 +5,7 @@ import unittest
 
 from openpyxl import Workbook, load_workbook
 
-from data_loader import FAMILY_AIRBUS, FAMILY_BOEING, META_ALIASES, find_column, parse_workbook
+from data_loader import FAMILY_AIRBUS, FAMILY_BOEING, META_ALIASES, find_column, negative_parts, parse_workbook
 
 
 def sample_workbook(model: str = "B747") -> bytes:
@@ -52,6 +52,63 @@ def boeing_layout_workbook() -> bytes:
 
 
 class ParserTests(unittest.TestCase):
+    def test_reordered_airbus_reads_both_blocks_with_late_metadata(self):
+        workbook = Workbook()
+        sheet = workbook.active
+        columns = {
+            1: "提交时间", 2: "填写ID", 3: "答题时间(秒)", 4: "被评估人姓名",
+            5: "评估日期", 6: "所属单位", 7: "技术等级",
+            8: "总飞行时间(已删除)", 9: "本机型经历时间(已删除)", 10: "评估员姓名",
+            11: "决策偏差", 12: "喊话偏差", 39: "仪表转目视飞行", 57: "综合考评",
+            58: "总扣分(已删除)", 59: "总飞行时间", 60: "本机型经历时间",
+            61: "提交者", 62: "机型", 63: "备注：", 71: "其他",
+            72: "讲评要点1：中断决策要点（5分）", 76: "单科总得分",
+            81: "单科总得分12", 86: "单科总得分10", 89: "单科总得分11",
+            92: "单科总得分5", 93: "教员双盲训前讲评总得分",
+            94: "单科总扣分(已删除)", 98: "单科总得分7",
+            99: "教员双盲模拟机评估总得分", 100: "单科总得分6",
+            101: "单科总得分2", 102: "单科总得分3", 103: "单科总得分4",
+            104: "拉平高修正动作", 113: "复飞决策与程序", 114: "单科总得分8",
+        }
+        sheet.append([columns.get(i, f"未命名列_{i}") for i in range(1, 115)])
+        values = {
+            2: "anonymous-1", 3: 100, 4: "测试教员", 5: "2026-10-11", 6: "测试单位",
+            7: "型别教员", 8: -999, 9: -999, 10: "测试评估员",
+            11: "无异常（不扣分）", 12: "未喊出中断（-4分）",
+            39: "三红一白（-1分）,无异常（不扣分）", 57: "技术性复飞（-10分）",
+            58: -999, 59: 8000, 60: 1600, 61: "提交者-9", 62: "A320",
+            63: "-99分", 71: "无异常（不扣分）", 72: "两项均有（+5分）",
+            93: 95, 94: -999, 99: 78,
+            104: "无异常（不扣分）,未及时修正高度（-2分）", 113: "未及时复飞（-3分）",
+        }
+        values.update({i: 20 for i in (76, 81, 86, 89, 92)})
+        values.update({i: 13 for i in (98, 100, 101, 102, 103, 114)})
+        sheet.append([values.get(i) for i in range(1, 115)])
+        output = BytesIO()
+        workbook.save(output)
+        _, ratings, deductions, _, _ = parse_workbook(output.getvalue(), "空客导出测试.xlsx")
+        self.assertEqual(ratings.iloc[0]["机型"], "A320")
+        self.assertEqual(ratings.iloc[0]["模拟机总分"], 78)
+        self.assertEqual(ratings.iloc[0]["训前总分"], 95)
+        self.assertEqual(len(ratings.iloc[0]["模拟机科目得分"]), 6)
+        self.assertEqual(len(ratings.iloc[0]["训前科目得分"]), 5)
+        self.assertEqual(ratings.iloc[0]["失分"], 20)
+        self.assertEqual(set(deductions["原始列号"]), {12, 39, 57, 104, 113})
+        self.assertEqual(deductions["失分"].sum(), 20)
+
+    def test_mixed_no_deduction_text_keeps_explicit_negative_parts(self):
+        cases = {
+            "无异常（不扣分）": [],
+            "三红一白（-1分）,无异常（不扣分）": [-1.0],
+            "无异常（不扣分）；技术性复飞（－10分）": [-10.0],
+            "无异常（不扣分）,偏差（−1.5分）,其他（-2分）": [-1.5, -2.0],
+            "无异常（不扣分）,技术性复飞减20": [-20.0],
+            "两项均有（+5分）": [],
+        }
+        for text, expected in cases.items():
+            with self.subTest(text=text):
+                self.assertEqual(negative_parts(text), expected)
+
     def test_model_at_bj_overrides_earlier_deleted_metadata(self):
         workbook = load_workbook(BytesIO(sample_workbook()))
         sheet = workbook["评估数据"]

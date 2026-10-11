@@ -17,7 +17,7 @@ from normalizer import normalize
 
 st.set_page_config(page_title="型别教员测试结果看板", page_icon="✈️", layout="wide", initial_sidebar_state="expanded")
 
-PARSER_CACHE_VERSION = "2026-10-10-exact-headers-v6"
+PARSER_CACHE_VERSION = "2026-10-11-reordered-deductions-v7"
 
 
 @st.cache_data(show_spinner=False)
@@ -287,7 +287,7 @@ def main() -> None:
         section("高频扣分项", "按总失分排序，便于复盘。")
         top = top_deductions(deductions, 10)
         if top.empty:
-            st.success("当前筛选范围内没有可识别的扣分事件。")
+            st.info("当前筛选范围内未识别到扣分事件。")
         else:
             top["显示项"] = top["科目名称"] + " · " + top["评分项目"]
             fig = score_chart(top.sort_values("总失分"), "总失分", "显示项", "扣分项 TOP 10", horizontal=True)
