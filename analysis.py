@@ -117,14 +117,17 @@ def subject_summary(ratings: pd.DataFrame) -> pd.DataFrame:
 
 
 def top_deductions(deductions: pd.DataFrame, limit: int = 10) -> pd.DataFrame:
+    """Rank projects after summing every deduction standard in each project."""
+    columns = ["评分项目", "扣分次数", "总失分"]
     if deductions.empty:
-        return pd.DataFrame(columns=["科目名称", "评分项目", "扣分标准", "扣分次数", "总失分"])
+        return pd.DataFrame(columns=columns)
     data = deductions.copy()
-    data = data[pd.to_numeric(data["失分"], errors="coerce").fillna(0) > 0]
+    data["失分"] = pd.to_numeric(data["失分"], errors="coerce").fillna(0)
+    data = data[data["失分"] > 0]
     if data.empty:
-        return pd.DataFrame(columns=["科目名称", "评分项目", "扣分标准", "扣分次数", "总失分"])
-    result = data.groupby(["科目名称", "评分项目", "扣分标准"], dropna=False).agg(扣分次数=("记录ID", "nunique"), 总失分=("失分", "sum")).reset_index()
-    return result.sort_values(["总失分", "扣分次数"], ascending=False).head(limit)
+        return pd.DataFrame(columns=columns)
+    result = data.groupby("评分项目", dropna=False).agg(扣分次数=("记录ID", "nunique"), 总失分=("失分", "sum")).reset_index()
+    return result.sort_values(["总失分", "扣分次数", "评分项目"], ascending=[False, False, True]).head(limit)
 
 
 def subject_loss(deductions: pd.DataFrame) -> pd.DataFrame:

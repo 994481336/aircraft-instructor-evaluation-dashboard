@@ -284,16 +284,28 @@ def main() -> None:
         else:
             st.warning("当前文件没有识别到数值型科目总分列。")
 
-        section("高频扣分项", "按总失分排序，便于复盘。")
+        section("扣分项目 TOP 10", "合并同一项目的所有扣分情况，按累计失分排序。")
         top = top_deductions(deductions, 10)
         if top.empty:
             st.info("当前筛选范围内未识别到扣分事件。")
         else:
-            top["显示项"] = top["科目名称"] + " · " + top["评分项目"]
-            fig = score_chart(top.sort_values("总失分"), "总失分", "显示项", "扣分项 TOP 10", horizontal=True)
+            project_summary = top.rename(columns={"扣分次数": "扣分记录数", "总失分": "累计失分"})
+            plot_data = project_summary.sort_values("累计失分")
+            fig = score_chart(plot_data, "累计失分", "评分项目", "各项目累计失分", horizontal=True)
             if fig:
+                fig.update_layout(barmode="group", height=max(360, len(top) * 42 + 80))
+                fig.update_traces(
+                    customdata=plot_data[["扣分记录数"]].to_numpy(),
+                    hovertemplate="%{y}<br>累计失分：%{x:.1f} 分<br>扣分记录数：%{customdata[0]}<extra></extra>",
+                )
                 st.plotly_chart(fig, width="stretch", key="overview_top_deductions")
-            st.dataframe(top.drop(columns=["显示项"]).round(2), width="stretch", hide_index=True)
+            st.dataframe(project_summary.round(2), width="stretch", hide_index=True)
+            with st.expander("具体扣分情况"):
+                detail = deductions[deductions["评分项目"].isin(top["评分项目"]) & (deductions["失分"] > 0)]
+                detail = detail.groupby(["评分项目", "扣分标准"], dropna=False).agg(
+                    扣分记录数=("记录ID", "nunique"), 累计失分=("失分", "sum"),
+                ).reset_index().sort_values(["评分项目", "累计失分"], ascending=[True, False])
+                st.dataframe(detail.round(2), width="stretch", hide_index=True)
 
         with st.expander("文件读取概况"):
             file_summary = data.summaries.copy()

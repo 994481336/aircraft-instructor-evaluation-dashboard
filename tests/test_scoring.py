@@ -37,6 +37,37 @@ class ScoringTests(unittest.TestCase):
         distribution = score_distribution(self.data.ratings)
         self.assertEqual(int(distribution["评分记录数"].sum()), 1)
 
+    def test_top_deductions_merges_standards_into_one_row_per_project(self):
+        rows = pd.DataFrame([
+            {"记录ID": "1", "科目名称": "科目一", "评分项目": "综合考评", "扣分标准": "情况甲", "失分": "108"},
+            {"记录ID": "2", "科目名称": "科目二", "评分项目": "综合考评", "扣分标准": "情况乙", "失分": "150"},
+            {"记录ID": "3", "科目名称": "科目一", "评分项目": "下滑线", "扣分标准": "情况丙", "失分": "50"},
+            {"记录ID": "3", "科目名称": "科目一", "评分项目": "下滑线", "扣分标准": "情况丁", "失分": "50"},
+            {"记录ID": "4", "评分项目": "下滑线", "失分": 0},
+            {"记录ID": "5", "评分项目": "下滑线", "失分": "未知"},
+        ])
+        before = rows.copy(deep=True)
+        top = top_deductions(rows)
+        self.assertEqual(top["评分项目"].tolist(), ["综合考评", "下滑线"])
+        self.assertEqual(top["总失分"].tolist(), [258, 100])
+        self.assertEqual(top["扣分次数"].tolist(), [2, 1])
+        self.assertTrue(top["评分项目"].is_unique)
+        self.assertNotIn("扣分标准", top.columns)
+        pd.testing.assert_frame_equal(rows, before)
+
+    def test_project_aggregation_happens_before_top_ten_limit(self):
+        rows = pd.DataFrame([
+            {"记录ID": str(i), "评分项目": f"其他项目{i}", "扣分标准": "情况甲", "失分": 100}
+            for i in range(11)
+        ] + [
+            {"记录ID": "12", "评分项目": "合并项目", "扣分标准": "情况乙", "失分": 80},
+            {"记录ID": "13", "评分项目": "合并项目", "扣分标准": "情况丙", "失分": 80},
+        ])
+        top = top_deductions(rows)
+        self.assertEqual(len(top), 10)
+        self.assertEqual(top.iloc[0]["评分项目"], "合并项目")
+        self.assertEqual(top.iloc[0]["总失分"], 160)
+
     def test_briefing_distinguishes_people_from_scoring_records(self):
         rows = pd.DataFrame([
             {"记录ID": "1", "姓名": "甲", "所属单位": "东航", "机型": "A320", "机型类别": "空客", "模拟机总分": 70.0},
