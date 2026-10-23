@@ -35,7 +35,7 @@ class ScoringTests(unittest.TestCase):
 
     def test_distribution_has_bins(self):
         distribution = score_distribution(self.data.ratings)
-        self.assertEqual(int(distribution["评分记录数"].sum()), 1)
+        self.assertEqual(int(distribution["评估人数"].sum()), 1)
 
     def test_top_deductions_merges_standards_into_one_row_per_project(self):
         rows = pd.DataFrame([
@@ -68,7 +68,7 @@ class ScoringTests(unittest.TestCase):
         self.assertEqual(top.iloc[0]["评分项目"], "合并项目")
         self.assertEqual(top.iloc[0]["总失分"], 160)
 
-    def test_briefing_distinguishes_people_from_scoring_records(self):
+    def test_briefing_averages_people_before_company_and_keeps_record_count(self):
         rows = pd.DataFrame([
             {"记录ID": "1", "姓名": "甲", "所属单位": "东航", "机型": "A320", "机型类别": "空客", "模拟机总分": 70.0},
             {"记录ID": "2", "姓名": "甲", "所属单位": "东航", "机型": "A320", "机型类别": "空客", "模拟机总分": 80.0},
@@ -78,8 +78,8 @@ class ScoringTests(unittest.TestCase):
         metrics = summary_metrics(segment, pd.DataFrame())
         self.assertEqual(metrics["评估人数"], 2)
         self.assertEqual(metrics["评分记录"], 3)
-        self.assertEqual(metrics["平均模拟机得分"], 80.0)
-        self.assertEqual(int(score_distribution(segment)["评分记录数"].sum()), 3)
+        self.assertEqual(metrics["平均模拟机得分"], 82.5)
+        self.assertEqual(int(score_distribution(segment)["评估人数"].sum()), 2)
 
     def test_briefing_is_not_limited_to_eastern_airlines(self):
         rows = pd.DataFrame([

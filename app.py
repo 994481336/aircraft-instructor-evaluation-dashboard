@@ -9,7 +9,7 @@ import plotly.express as px
 import streamlit as st
 import yaml
 
-from analysis import score_distribution, score_text, subject_loss, subject_score_frame, summary_metrics, top_deductions, type_briefing_segments, unit_summary, xlsx_bytes
+from analysis import company_summary, person_score_frame, score_distribution, score_text, subject_loss, subject_score_frame, subject_summary, summary_metrics, top_deductions, type_briefing_segments, unit_summary, with_person_identity, xlsx_bytes
 from company import canonical_company
 from data_loader import FAMILY_RULES, parse_many
 from normalizer import normalize
@@ -126,19 +126,21 @@ def empty_state() -> None:
 def fmt(value: Any, digits: int = 1) -> str:
     if value is None or pd.isna(value):
         return "-"
+    if digits == 1:
+        return score_text(value)
     return f"{float(value):.{digits}f}"
 
 
 def score_chart(frame: pd.DataFrame, x: str, y: str, title: str, color: str | None = None, horizontal: bool = False):
     if frame.empty or x not in frame or y not in frame:
         return None
-    label_format = ".0f" if x == "评分记录数" or y == "评分记录数" else ".1f"
+    label_format = ".0f" if x in {"评分记录数", "评估人数"} or y in {"评分记录数", "评估人数"} else ".1f"
     if horizontal:
         fig = px.bar(frame, x=x, y=y, color=color, orientation="h", title=title, text_auto=label_format)
     else:
         fig = px.bar(frame, x=x, y=y, color=color, title=title, text_auto=label_format)
     fig.update_layout(template="plotly_white", margin=dict(l=10, r=10, t=45, b=10), legend_title_text="", height=360)
-    if x == "评分记录数":
+    if x in {"评分记录数", "评估人数"}:
         fig.update_xaxes(dtick=1)
     return fig
 
@@ -202,7 +204,7 @@ def main() -> None:
         deductions = deductions[deductions["统计机型"] == selected_model]
     if selected_role != "全部":
         ratings = ratings[ratings["技术等级"] == selected_role]
-        deductions = deductions[deductions["技术等级"] == selected_role]
+        deductions = deductions[deductions["记录ID"].isin(ratings["记录ID"])]
 
     tabs = st.tabs(["机型简报", "总览驾驶舱", "教员档案", "科目分析"])
     with tabs[0]:
@@ -221,24 +223,27 @@ def main() -> None:
         else:
             if display_mode == "按具体机型" and ratings["统计机型"].str.contains("机型未明确", regex=False).any():
                 st.caption("部分原表记录只填写了机型类别，已单列为“机型未明确”，未推断具体型号。")
-            st.caption("人数按姓名去重；记录平均分、得分分布和单位平均分均按评分记录计算，同一人多次评估分别计入。")
+            st.caption("先计算每位教员的平均分，再计算公司或单位平均分；得分分布按个人均分统计，每人只计一次。")
+            with st.expander("统计口径"):
+                st.write("统计范围为当前上传并筛选后的记录。同一公司内按姓名归并，不同公司的同名人员分开统计；原表没有人员唯一编号，同一公司内的重名人员需先在源数据中区分。缺失分数不按0分计入，均分计算过程中不提前四舍五入。不同批次或时间段请分别上传相应数据。")
             if selected_company != "全部公司":
                 st.caption("本次纳入的原表单位名称：" + "、".join(selected_units))
             for segment_index, (section_title, segment) in enumerate(segments):
                 segment_metrics = summary_metrics(segment, pd.DataFrame())
                 st.markdown(f'<div class="brief-section-title">{escape(section_title)}</div>', unsafe_allow_html=True)
-                st.markdown(f'<div class="brief-lead">评估 <strong>{segment_metrics["评估人数"]}</strong> 人，评分记录 <strong>{segment_metrics["评分记录"]}</strong> 条，记录平均分 <strong>{score_text(segment_metrics["平均模拟机得分"])}</strong></div>', unsafe_allow_html=True)
+                st.markdown(f'<div class="brief-lead">评估 <strong>{segment_metrics["评估人数"]}</strong> 人，评分记录 <strong>{segment_metrics["评分记录"]}</strong> 条，人员平均分 <strong>{score_text(segment_metrics["平均模拟机得分"])}</strong></div>', unsafe_allow_html=True)
+                if segment_metrics["有效评分人数"] < segment_metrics["评估人数"]:
+                    st.caption(f'均分与得分分布仅计入有有效分数的 {segment_metrics["有效评分人数"]} 人。')
                 left, right = st.columns(2)
                 with left:
                     distribution = score_distribution(segment)
-                    fig = score_chart(distribution, "评分记录数", "分数区间", "得分分布（按记录）", horizontal=True)
+                    fig = score_chart(distribution, "评估人数", "分数区间", "个人均分分布", horizontal=True)
                     if fig:
                         st.plotly_chart(fig, width="stretch", key=f"brief_score_distribution_{display_mode}_{segment_index}")
                 with right:
                     unit_scores = unit_summary(segment)
                     if selected_company == "全部公司":
-                        company_rows = segment.assign(公司=segment["所属单位"].map(canonical_company))
-                        unit_scores = company_rows.groupby("公司", as_index=False).agg(平均分=("模拟机总分", "mean"))
+                        unit_scores = company_summary(segment)
                         chart_name = "公司平均分"
                         axis_name = "公司"
                     else:
@@ -255,28 +260,32 @@ def main() -> None:
         metric_cards([
             ("评估人数", str(metrics["评估人数"]), "当前筛选范围"),
             ("评分记录", str(metrics["评分记录"]), "同一人可有多条"),
-            ("记录平均分", fmt(metrics["平均模拟机得分"]), "按有分数的记录计算"),
-            ("最高分", fmt(metrics["最高分"]), "样本峰值"),
-            ("最低分", fmt(metrics["最低分"]), "重点复盘对象"),
-            ("平均失分", fmt(metrics["平均失分"]), "按记录计算"),
+            ("人员平均分", fmt(metrics["平均模拟机得分"]), f'先算个人均分，计入 {metrics["有效评分人数"]} 人'),
+            ("最高个人均分", fmt(metrics["最高分"]), "按个人均分比较"),
+            ("最低个人均分", fmt(metrics["最低分"]), "按个人均分比较"),
+            ("人均失分", fmt(metrics["平均失分"]), "先算个人平均失分"),
         ])
+        with st.expander("人员均分明细"):
+            person_table = person_score_frame(ratings).drop(columns=["人员标识"]).rename(columns={
+                "模拟机总分": "个人模拟机均分", "训前总分": "个人训前讲评均分", "失分": "个人平均失分",
+            })
+            st.dataframe(person_table.round(2), width="stretch", hide_index=True)
         section("评分概览", "将训前讲评和模拟机表现分开呈现。")
         left, right = st.columns(2)
         with left:
             distribution = score_distribution(ratings)
-            fig = score_chart(distribution, "评分记录数", "分数区间", "得分分布（按记录）", horizontal=True)
+            fig = score_chart(distribution, "评估人数", "分数区间", "个人均分分布", horizontal=True)
             if fig:
                 st.plotly_chart(fig, width="stretch", key="overview_score_distribution")
         with right:
-            units = unit_summary(ratings)
-            fig = score_chart(units, "平均分", "所属单位", "单位平均分", horizontal=True)
+            units = company_summary(ratings)
+            fig = score_chart(units, "平均分", "公司", "公司平均分", horizontal=True)
             if fig:
                 st.plotly_chart(fig, width="stretch", key="overview_unit_average")
 
-        section("科目平均分", "以 Excel 中的模拟机各科总得分为准。")
-        subjects = subject_score_frame(ratings)
-        if not subjects.empty:
-            subject_avg = subjects.groupby("科目名称", as_index=False).agg(平均分=("得分", "mean"), 评估人数=("得分", "count"))
+        section("科目平均分", "先算每人的科目平均分，再计算总体平均分。")
+        subject_avg = subject_summary(ratings)
+        if not subject_avg.empty:
             fig = score_chart(subject_avg, "平均分", "科目名称", "各科目平均分", horizontal=True)
             if fig:
                 st.plotly_chart(fig, width="stretch", key="overview_subject_average")
@@ -313,20 +322,44 @@ def main() -> None:
             st.dataframe(file_summary[[column for column in summary_columns if column in file_summary.columns]], width="stretch", hide_index=True)
 
     with tabs[2]:
-        section("教员个人档案", "选择人员查看经历、总分、科目分数与具体扣分。")
+        section("教员个人档案", "查看个人均分，并保留每次评估的原始得分与扣分。")
         if ratings.empty:
             st.info("当前筛选范围没有人员记录。")
         else:
-            person_options = sorted(ratings["姓名"].dropna().unique().tolist())
-            selected_person = st.selectbox("选择教员", person_options)
-            person = ratings[ratings["姓名"] == selected_person].iloc[0]
-            person_deductions = deductions[deductions["记录ID"] == person["记录ID"]]
+            people = person_score_frame(ratings).set_index("人员标识")
+            person_options = people.sort_values(["姓名", "公司"]).index.tolist()
+            selected_person = st.selectbox("选择教员", person_options, format_func=lambda key: f'{people.loc[key, "姓名"]} · {people.loc[key, "公司"]}')
+            person_average = people.loc[selected_person]
+            identified = with_person_identity(ratings)
+            person_rows = identified[identified["人员标识"] == selected_person]
+            metric_cards([
+                ("个人模拟机均分", fmt(person_average["模拟机总分"]), f'{int(person_average["有效评分记录"])} 条有效评分'),
+                ("个人训前讲评均分", fmt(person_average["训前总分"]), "独立评分体系"),
+                ("个人平均失分", fmt(person_average["失分"]), f'共 {int(person_average["评分记录"])} 条评估记录'),
+            ])
+            average_subjects = subject_score_frame(person_rows)
+            if not average_subjects.empty:
+                average_subjects = average_subjects.groupby("科目名称", as_index=False)["得分"].mean()
+                fig = score_chart(average_subjects, "科目名称", "得分", "个人模拟机各科平均分")
+                if fig:
+                    st.plotly_chart(fig, width="stretch", key="personal_subject_averages")
+            record_index = st.selectbox(
+                "查看原始评分记录", person_rows.index.tolist(),
+                format_func=lambda index: f'{person_rows.loc[index, "评估日期"]} · {person_rows.loc[index, "评估员"]} · 编号 {person_rows.loc[index, "记录ID"]}',
+            )
+            person = person_rows.loc[record_index]
+            person_deductions = deductions[
+                (deductions["记录ID"] == person["记录ID"])
+                & (deductions["来源文件"] == person["来源文件"])
+                & (deductions["姓名"] == person["姓名"])
+                & (deductions["所属单位"] == person["所属单位"])
+            ]
             rule = load_rule(str(person.get("机型类别", "未识别")))
             st.caption(f"规则版本：{rule.get('version', '未知')} · 来源：{rule.get('source', '未指定')}")
             metric_cards([
-                ("模拟机总分", fmt(person.get("模拟机总分")), "Excel 表内总分"),
-                ("训前讲评", fmt(person.get("训前总分")), "独立评分体系"),
-                ("总失分", fmt(person.get("失分")), "扣分项合计"),
+                ("本次模拟机得分", fmt(person.get("模拟机总分")), "所选原始记录"),
+                ("本次训前讲评", fmt(person.get("训前总分")), "所选原始记录"),
+                ("本次失分", fmt(person.get("失分")), "所选记录扣分项合计"),
             ])
             profile_fields = [
                 ("姓名", person.get("姓名")), ("所属单位", person.get("所属单位")), ("机型", person.get("机型")),
@@ -337,14 +370,14 @@ def main() -> None:
             profile_html = "".join(f'<div class="profile-item"><div class="profile-label">{label}</div><div class="profile-value">{value if value is not None and not pd.isna(value) else "-"}</div></div>' for label, value in profile_fields)
             st.markdown(f'<div class="profile-grid">{profile_html}</div>', unsafe_allow_html=True)
             if float(person.get("失分") or 0) > 0:
-                st.markdown(f'<div class="risk-strip">复盘提示：该教员累计失分 {fmt(person.get("失分"))} 分。请结合下方扣分明细和科目表现安排讲评。</div>', unsafe_allow_html=True)
-            person_scores = subject_score_frame(ratings[ratings["记录ID"] == person["记录ID"]])
+                st.markdown(f'<div class="risk-strip">本次评估失分 {fmt(person.get("失分"))} 分，具体扣分见下方明细。</div>', unsafe_allow_html=True)
+            person_scores = subject_score_frame(person_rows.loc[[record_index]])
             if not person_scores.empty:
-                fig = px.bar(person_scores, x="科目名称", y="得分", title="个人模拟机各科得分", text_auto=".1f", color="科目名称")
+                fig = px.bar(person_scores, x="科目名称", y="得分", title="本次模拟机各科得分", text_auto=".1f", color="科目名称")
                 fig.update_layout(template="plotly_white", showlegend=False, height=360, margin=dict(l=10, r=10, t=45, b=10))
                 st.plotly_chart(fig, width="stretch", key="personal_subject_scores")
             if person_deductions.empty:
-                st.success("该教员没有识别到扣分事件。")
+                st.info("本次评估未识别到扣分事件。")
             else:
                 st.dataframe(person_deductions.drop(columns=["记录ID"], errors="ignore"), width="stretch", hide_index=True)
 
