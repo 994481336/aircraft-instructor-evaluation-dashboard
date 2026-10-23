@@ -33,7 +33,7 @@ def with_person_identity(ratings: pd.DataFrame) -> pd.DataFrame:
 
 def person_score_frame(ratings: pd.DataFrame) -> pd.DataFrame:
     """One row per person; retain unrounded means and source record counts."""
-    columns = ["人员标识", "公司", "姓名", "评分记录", "有效评分记录", "模拟机总分", "训前总分", "失分"]
+    columns = ["人员标识", "公司", "姓名", "评分记录", "有效评分记录", "有效讲评记录", "模拟机总分", "训前总分", "失分"]
     if ratings.empty:
         return pd.DataFrame(columns=columns)
     data = with_person_identity(ratings)
@@ -42,6 +42,7 @@ def person_score_frame(ratings: pd.DataFrame) -> pd.DataFrame:
     return data.groupby("人员标识", sort=False, dropna=False).agg(
         公司=("公司", "first"), 姓名=("姓名", "first"),
         评分记录=("姓名", "size"), 有效评分记录=("模拟机总分", "count"),
+        有效讲评记录=("训前总分", "count"),
         模拟机总分=("模拟机总分", "mean"), 训前总分=("训前总分", "mean"), 失分=("失分", "mean"),
     ).reset_index()[columns]
 
@@ -67,48 +68,52 @@ def subject_score_frame(ratings: pd.DataFrame, field: str = "模拟机科目得�
     return pd.DataFrame(rows)
 
 
-def summary_metrics(ratings: pd.DataFrame, deductions: pd.DataFrame) -> dict[str, float | int | None]:
+def summary_metrics(ratings: pd.DataFrame, deductions: pd.DataFrame, score_field: str = "模拟机总分") -> dict[str, float | int | None]:
     people = person_score_frame(ratings)
-    score = pd.to_numeric(people["模拟机总分"], errors="coerce")
+    score = pd.to_numeric(people[score_field], errors="coerce")
+    simulator_score = pd.to_numeric(people["模拟机总分"], errors="coerce")
     loss = pd.to_numeric(people["失分"], errors="coerce")
     return {
         "评估人数": len(people),
         "有效评分人数": int(score.notna().sum()),
         "评分记录": len(ratings),
-        "平均模拟机得分": float(score.mean()) if score.notna().any() else None,
+        "平均分": float(score.mean()) if score.notna().any() else None,
+        "平均模拟机得分": float(simulator_score.mean()) if simulator_score.notna().any() else None,
         "最高分": float(score.max()) if score.notna().any() else None,
         "最低分": float(score.min()) if score.notna().any() else None,
-        "平均失分": float(loss.mean()) if loss.notna().any() else None,
+        "平均失分": float(loss.mean()) if score_field == "模拟机总分" and loss.notna().any() else None,
         "待复核": int((ratings.get("数据质量", pd.Series(dtype=str)) == "待复核").sum()),
-        "扣分事件": int((pd.to_numeric(deductions.get("失分", pd.Series(dtype=float)), errors="coerce") > 0).sum()) if not deductions.empty else 0,
+        "扣分事件": int((pd.to_numeric(deductions.get("失分", pd.Series(dtype=float)), errors="coerce") > 0).sum()) if score_field == "模拟机总分" and not deductions.empty else 0,
     }
 
 
-def unit_summary(ratings: pd.DataFrame) -> pd.DataFrame:
+def unit_summary(ratings: pd.DataFrame, score_field: str = "模拟机总分") -> pd.DataFrame:
     if ratings.empty:
         return pd.DataFrame(columns=["所属单位", "评估人数", "有效评分人数", "评分记录", "平均分", "最高分", "最低分", "平均失分"])
     people = [person_score_frame(part).assign(所属单位=unit) for unit, part in ratings.groupby("所属单位", dropna=False)]
-    return _group_person_scores(pd.concat(people, ignore_index=True), "所属单位")
+    return _group_person_scores(pd.concat(people, ignore_index=True), "所属单位", score_field)
 
 
-def _group_person_scores(people: pd.DataFrame, group: str) -> pd.DataFrame:
+def _group_person_scores(people: pd.DataFrame, group: str, score_field: str = "模拟机总分") -> pd.DataFrame:
     result = people.groupby(group, dropna=False).agg(
         评估人数=("人员标识", "size"),
-        有效评分人数=("模拟机总分", "count"),
+        有效评分人数=(score_field, "count"),
         评分记录=("评分记录", "sum"),
-        平均分=("模拟机总分", "mean"),
-        最高分=("模拟机总分", "max"),
-        最低分=("模拟机总分", "min"),
+        平均分=(score_field, "mean"),
+        最高分=(score_field, "max"),
+        最低分=(score_field, "min"),
         平均失分=("失分", "mean"),
     ).reset_index()
+    if score_field != "模拟机总分":
+        result["平均失分"] = float("nan")
     return result.sort_values("平均分", ascending=False)
 
 
-def company_summary(ratings: pd.DataFrame) -> pd.DataFrame:
+def company_summary(ratings: pd.DataFrame, score_field: str = "模拟机总分") -> pd.DataFrame:
     people = person_score_frame(ratings)
     if people.empty:
         return pd.DataFrame(columns=["公司", "评估人数", "有效评分人数", "评分记录", "平均分", "最高分", "最低分", "平均失分"])
-    return _group_person_scores(people, "公司")
+    return _group_person_scores(people, "公司", score_field)
 
 
 def type_briefing_segments(ratings: pd.DataFrame, mode: str = "按机型类别") -> list[tuple[str, pd.DataFrame]]:
@@ -163,8 +168,8 @@ def type_briefing(ratings: pd.DataFrame) -> pd.DataFrame:
     return pd.DataFrame(rows, columns=columns)
 
 
-def subject_summary(ratings: pd.DataFrame) -> pd.DataFrame:
-    scores = subject_score_frame(ratings)
+def subject_summary(ratings: pd.DataFrame, field: str = "模拟机科目得分") -> pd.DataFrame:
+    scores = subject_score_frame(ratings, field)
     if scores.empty:
         return pd.DataFrame(columns=["科目名称", "评估人数", "平均分", "最高分", "最低分"])
     people = scores.groupby(["人员标识", "科目名称"], as_index=False)["得分"].mean()
@@ -192,10 +197,10 @@ def subject_loss(deductions: pd.DataFrame) -> pd.DataFrame:
     return data.groupby("科目名称", as_index=False).agg(扣分次数=("记录ID", "nunique"), 总失分=("失分", "sum")).sort_values("总失分", ascending=False)
 
 
-def score_distribution(ratings: pd.DataFrame) -> pd.DataFrame:
+def score_distribution(ratings: pd.DataFrame, score_field: str = "模拟机总分") -> pd.DataFrame:
     if ratings.empty:
         return pd.DataFrame(columns=["分数区间", "评估人数"])
-    scores = pd.to_numeric(person_score_frame(ratings)["模拟机总分"], errors="coerce").dropna()
+    scores = pd.to_numeric(person_score_frame(ratings)[score_field], errors="coerce").dropna()
     labels = ["<80", "80-89", "90-94", "95-100", ">100"]
     counts = [
         (scores < 80).sum(), ((scores >= 80) & (scores < 90)).sum(),

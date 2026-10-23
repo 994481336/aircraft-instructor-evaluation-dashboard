@@ -102,6 +102,23 @@ class PersonAverageTests(unittest.TestCase):
         self.assertTrue(score_distribution(source).empty)
         self.assertIsNone(summary_metrics(source, pd.DataFrame())["平均模拟机得分"])
 
+    def test_briefing_uses_its_own_total_subjects_and_valid_person_count(self):
+        source = ratings()
+        source["训前科目得分"] = [{"讲评科目一": score} for score in (2, 4, 6, 8)]
+        metrics = summary_metrics(source, pd.DataFrame(), "训前总分")
+        self.assertEqual(metrics["平均分"], 90)
+        self.assertEqual(metrics["平均模拟机得分"], 80)
+        self.assertIsNone(metrics["平均失分"])
+        self.assertEqual(metrics["扣分事件"], 0)
+        self.assertEqual(company_summary(source, "训前总分").iloc[0]["平均分"], 90)
+        self.assertEqual(unit_summary(source, "训前总分").iloc[0]["平均分"], 90)
+        self.assertEqual(subject_summary(source, "训前科目得分").iloc[0]["平均分"], 6)
+        self.assertEqual(score_distribution(source, "训前总分")["评估人数"].sum(), 2)
+        source["模拟机总分"] = None
+        self.assertEqual(summary_metrics(source, pd.DataFrame(), "训前总分")["有效评分人数"], 2)
+        self.assertEqual(summary_metrics(source, pd.DataFrame())["有效评分人数"], 0)
+        self.assertEqual(person_score_frame(source)["有效讲评记录"].sum(), 4)
+
 
 if __name__ == "__main__":
     unittest.main()
