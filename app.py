@@ -225,9 +225,6 @@ def main() -> None:
         else:
             if display_mode == "按具体机型" and ratings["统计机型"].str.contains("机型未明确", regex=False).any():
                 st.caption("部分原表记录只填写了机型类别，已单列为“机型未明确”，未推断具体型号。")
-            st.caption("先计算每位教员的平均分，再计算公司或单位平均分；得分分布按个人均分统计，每人只计一次。")
-            with st.expander("统计口径"):
-                st.write("统计范围为当前上传并筛选后的记录。同一公司内按姓名归并，不同公司的同名人员分开统计；原表没有人员唯一编号，同一公司内的重名人员需先在源数据中区分。缺失分数不按0分计入，均分计算过程中不提前四舍五入。不同批次或时间段请分别上传相应数据。")
             if selected_company != "全部公司":
                 st.caption("本次纳入的原表单位名称：" + "、".join(selected_units))
             for segment_index, (section_title, segment) in enumerate(segments):

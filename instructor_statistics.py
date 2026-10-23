@@ -116,6 +116,29 @@ def company_summary(ratings: pd.DataFrame, score_field: str = "模拟机总分")
     return _group_person_scores(people, "公司", score_field)
 
 
+def _chinese_section_number(number: int) -> str:
+    digits = "零一二三四五六七八九"
+    if number < 0:
+        raise ValueError("Section numbers must be non-negative")
+    if number < 10:
+        return digits[number]
+    result = ""
+    pending_zero = False
+    for unit, suffix in ((100000000, "亿"), (10000, "万"), (1000, "千"), (100, "百"), (10, "十"), (1, "")):
+        count, number = divmod(number, unit)
+        if count:
+            if pending_zero:
+                result += "零"
+            prefix = _chinese_section_number(count)
+            if unit == 10 and count == 1 and not result:
+                prefix = ""
+            result += prefix + suffix
+            pending_zero = False
+        elif result and number:
+            pending_zero = True
+    return result
+
+
 def type_briefing_segments(ratings: pd.DataFrame, mode: str = "按机型类别") -> list[tuple[str, pd.DataFrame]]:
     """Partition the selected records by manufacturer category or model."""
     if ratings.empty:
@@ -126,16 +149,17 @@ def type_briefing_segments(ratings: pd.DataFrame, mode: str = "按机型类别")
         if "统计机型" not in data:
             models = data.get("机型", pd.Series(index=data.index, dtype=str))
             data["统计机型"] = [canonical_model(model, category) for model, category in zip(models, family)]
-        return [(f"{index}、{model}", part.copy()) for index, (model, part) in enumerate(data.groupby("统计机型", sort=True), start=1)]
+        return [(f"{_chinese_section_number(index)}、{model}", part.copy()) for index, (model, part) in enumerate(data.groupby("统计机型", sort=True), start=1)]
     groups = [
-        ("一、国产民机", data[family.eq("国产民机")].copy()),
-        ("二、空客机型", data[family.eq("空客")].copy()),
-        ("三、波音机型", data[family.eq("波音")].copy()),
+        ("国产民机", data[family.eq("国产民机")].copy()),
+        ("空客机型", data[family.eq("空客")].copy()),
+        ("波音机型", data[family.eq("波音")].copy()),
     ]
     other = data[~family.isin(["国产民机", "空客", "波音"])].copy()
     if not other.empty:
-        groups.append(("四、未识别类别", other))
-    return [(label, part) for label, part in groups if not part.empty]
+        groups.append(("未识别类别", other))
+    visible = [(label, part) for label, part in groups if not part.empty]
+    return [(f"{_chinese_section_number(index)}、{label}", part) for index, (label, part) in enumerate(visible, start=1)]
 
 
 def type_briefing(ratings: pd.DataFrame) -> pd.DataFrame:

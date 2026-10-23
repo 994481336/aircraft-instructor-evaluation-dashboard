@@ -11,6 +11,28 @@ from normalizer import normalize
 
 
 class AircraftGroupingTests(unittest.TestCase):
+    def test_briefing_numbers_only_visible_categories(self):
+        rows = pd.DataFrame([
+            {"机型": "A320", "机型类别": "空客"},
+            {"机型": "B787", "机型类别": "波音"},
+            {"机型": "X999", "机型类别": "未识别"},
+        ])
+        self.assertEqual([title for title, _ in type_briefing_segments(rows.iloc[[0]])], ["一、空客机型"])
+        self.assertEqual([title for title, _ in type_briefing_segments(rows.iloc[[1]])], ["一、波音机型"])
+        self.assertEqual([title for title, _ in type_briefing_segments(rows.iloc[[2]])], ["一、未识别类别"])
+        self.assertEqual([title for title, _ in type_briefing_segments(rows.iloc[:2])], ["一、空客机型", "二、波音机型"])
+        self.assertEqual([title for title, _ in type_briefing_segments(rows)], ["一、空客机型", "二、波音机型", "三、未识别类别"])
+
+    def test_model_sections_use_continuous_chinese_numbers(self):
+        rows = pd.DataFrame([{"统计机型": f"机型{i:02}", "机型类别": "波音"} for i in range(1, 22)])
+        sections = type_briefing_segments(rows, "按具体机型")
+        self.assertEqual(sections[0][0], "一、机型01")
+        self.assertEqual(sections[9][0], "十、机型10")
+        self.assertEqual(sections[10][0], "十一、机型11")
+        self.assertEqual(sections[19][0], "二十、机型20")
+        self.assertEqual(sections[20][0], "二十一、机型21")
+        self.assertEqual(type_briefing_segments(rows.iloc[[20]], "按具体机型")[0][0], "一、机型21")
+
     def test_model_aliases_and_unspecified_values(self):
         for raw in ("B737", "B737-800", "737-800", "B738", "B737 MAX8"):
             self.assertEqual(canonical_model(raw, "波音"), "B737")
