@@ -3,7 +3,10 @@ from __future__ import annotations
 from io import BytesIO
 import json
 from pathlib import Path
+import sys
+from types import ModuleType
 import unittest
+from unittest.mock import patch
 
 from openpyxl import load_workbook
 from streamlit.testing.v1 import AppTest
@@ -29,6 +32,23 @@ def unequal_scores_workbook() -> bytes:
 
 
 class PersonAverageUiTests(unittest.TestCase):
+    def test_live_update_with_stale_analysis_module_still_starts_and_averages(self):
+        legacy = ModuleType("analysis")
+        # A live Streamlit worker can keep the pre-person-aggregation module.
+        # New UI imports must not depend on newly added names in that object.
+        with patch.dict(sys.modules, {"analysis": legacy}):
+            self.assertFalse(hasattr(legacy, "company_summary"))
+            with self.assertRaises(ImportError):
+                exec("from analysis import company_summary", {})
+            at = AppTest.from_file(str(Path(__file__).resolve().parents[1] / "app.py")).run(timeout=30)
+            self.assertFalse(at.exception)
+            at.get("file_uploader")[0].upload("匿名热更新测试.xlsx", unequal_scores_workbook()).run(timeout=60)
+            self.assertFalse(at.exception)
+            metrics = next(item.value for item in at.markdown if 'class="metric-label">人员平均分' in item.value)
+            self.assertIn("80.0", metrics)
+            people = next(table.value for table in at.dataframe if "个人模拟机均分" in table.value.columns)
+            self.assertEqual(len(people), 2)
+
     def test_person_weighted_dashboard_and_source_record_selection(self):
         at = AppTest.from_file(str(Path(__file__).resolve().parents[1] / "app.py")).run(timeout=30)
         at.get("file_uploader")[0].upload("匿名空客测试.xlsx", unequal_scores_workbook()).run(timeout=60)

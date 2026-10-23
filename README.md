@@ -34,10 +34,12 @@ streamlit run app.py
 
 ```bash
 python -m unittest discover -s tests -p 'test_*.py'
-python -m py_compile app.py data_loader.py normalizer.py analysis.py company.py aircraft.py
+python -m py_compile app.py data_loader.py normalizer.py instructor_statistics.py analysis.py company.py aircraft.py
 ```
 
 上传验证应分别覆盖单独上传波音、空客、国产民机，以及切换公司筛选。简报与总览可能展示相同数据的图表，各图表已设置独立组件编号，避免单机型上传时发生重复组件错误。
+
+统计实现位于 `instructor_statistics.py`，应用直接从该模块导入；`analysis.py` 仅保留旧导入路径的兼容导出，避免线上进程保留旧版 `analysis` 时无法导入新增人员统计函数。回归测试覆盖预先加载旧 `analysis` 模块后启动应用、上传数据及人员均分显示。
 
 ## 评分规则
 

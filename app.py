@@ -9,7 +9,7 @@ import plotly.express as px
 import streamlit as st
 import yaml
 
-from analysis import company_summary, person_score_frame, score_distribution, score_text, subject_loss, subject_score_frame, subject_summary, summary_metrics, top_deductions, type_briefing_segments, unit_summary, with_person_identity, xlsx_bytes
+from instructor_statistics import company_summary, person_score_frame, score_distribution, score_text, subject_loss, subject_score_frame, subject_summary, summary_metrics, top_deductions, type_briefing_segments, unit_summary, with_person_identity, xlsx_bytes
 from company import canonical_company
 from data_loader import FAMILY_RULES, parse_many
 from normalizer import normalize
